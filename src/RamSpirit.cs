@@ -851,6 +851,18 @@ class LoadCover : Form
     }
 }
 
+// 탭 하나 = 칸 구성 하나 (예: 「AI」 탭 4칸, 「이미지」 탭에 포토샵 등)
+class Workspace
+{
+    public string Name;
+    public List<Target> T = new List<Target>();
+    public List<AppInfo> Apps = new List<AppInfo>();   // 아직 한 번도 안 연 탭의 앱 목록
+    public double[] ColW = new double[0], RowW = new double[0];
+    public int Solo = -1;
+    public bool Started;
+    public Workspace(string n) { Name = n; }
+}
+
 class Target
 {
     public AppInfo App;
@@ -920,7 +932,18 @@ class Target
 
 class MainForm : Form
 {
-    readonly List<Target> T = new List<Target>();
+    List<Target> T = new List<Target>();
+    readonly List<Workspace> spaces = new List<Workspace>();
+    Workspace cur;
+
+    // 모든 탭의 칸
+    List<Target> AllTargets()
+    {
+        var all = new List<Target>();
+        foreach (Workspace w in spaces) all.AddRange(w.T);
+        if (!spaces.Contains(cur)) all.AddRange(T);
+        return all;
+    }
     int solo = -1;
     Target drag = null, dropOn = null;
     Point dragStart;
@@ -1041,11 +1064,19 @@ class MainForm : Form
             using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
         };
         bar.Resize += delegate { LayoutBar(); };
+        tabAdd = new IconBtn();
+        tabAdd.Ghost = true; tabAdd.Glyph = "\uE710"; tabAdd.Radius = 8;
+        tabAdd.Click += delegate { AddSpace(); };
+        Tip(tabAdd, "새 탭 만들기 (예: 이미지 탭에 포토샵)");
+        bar.Controls.Add(tabAdd);
         barBtns = new IconBtn[] { allNew, resetBtn, compToggle, setBtn };
         Controls.Add(bar);
         BuildComposer();
 
-        foreach (AppInfo a in LoadConfig()) AddTarget(a);
+        LoadSpaces();
+        T = cur.T; colW = cur.ColW; rowW = cur.RowW;
+        foreach (AppInfo a in cur.Apps) AddTarget(a);
+        cur.Started = true;
 
         area.Resize += delegate { DoLayout(); };
         // 칸 사이 틈(가운데 십자 포함)을 끌어서 칸 크기 조절
@@ -1070,10 +1101,10 @@ class MainForm : Form
     }
 
     // ---------- 설정 저장/불러오기 (apps.txt: 이름 TAB 찾을단어 TAB 주소 TAB 색) ----------
-    List<AppInfo> LoadConfig()
+    void LoadSpaces()
     {
-        var list = new List<AppInfo>();
-        double[] cw = null, rw = null;
+        string active = null;
+        Workspace w = null;
         try
         {
             if (File.Exists(configFile))
@@ -1081,26 +1112,37 @@ class MainForm : Form
                 foreach (string line in File.ReadAllLines(configFile, Encoding.UTF8))
                 {
                     string[] p = line.Split('\t');
-                    if (p.Length == 3 && p[0] == "#ratio") { cw = ParseNums(p[1]); rw = ParseNums(p[2]); continue; }
+                    if (p.Length == 2 && p[0] == "#tab") { w = new Workspace(p[1].Trim()); spaces.Add(w); continue; }
+                    if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
-                    if (line.StartsWith("#")) continue;
+                    if (line.StartsWith("#") && !line.StartsWith("#ratio")) continue;
+                    if (w == null) { w = new Workspace("AI"); spaces.Add(w); }   // 예전 설정 파일(탭 없음)
+                    if (p.Length == 3 && p[0] == "#ratio")
+                    {
+                        double[] cw = ParseNums(p[1]), rw = ParseNums(p[2]);
+                        if (cw != null && rw != null) { w.ColW = cw; w.RowW = rw; }
+                        continue;
+                    }
                     if ((p.Length == 4 || p.Length == 5) && p[0].Length > 0 && p[2].Length > 0)
                     {
                         var a = new AppInfo(p[0], p[1], p[2], p[3]);
                         if (p.Length == 5) a.SendPref = p[4] == "1" ? 1 : 0;
-                        list.Add(a);
+                        w.Apps.Add(a);
                     }
                 }
             }
         }
         catch { }
-        if (list.Count < 2 || list.Count > 8 || list.Count % 2 != 0)
-        {
-            list.Clear();
-            for (int i = 0; i < 4; i++) list.Add(AppInfo.Presets[i]);
-        }
-        if (cw != null && rw != null) { colW = cw; rowW = rw; }
-        return list;
+        if (spaces.Count == 0) spaces.Add(new Workspace("AI"));
+        foreach (Workspace x in spaces)
+            if (x.Apps.Count < 2 || x.Apps.Count > 8 || x.Apps.Count % 2 != 0)
+            {
+                x.Apps.Clear();
+                for (int i = 0; i < 4; i++) x.Apps.Add(AppInfo.Presets[i]);
+                x.ColW = new double[0]; x.RowW = new double[0];
+            }
+        cur = spaces[0];
+        foreach (Workspace x in spaces) if (x.Name == active) cur = x;
     }
 
     static double[] ParseNums(string s)
@@ -1131,8 +1173,17 @@ class MainForm : Form
         try
         {
             var lines = new List<string>();
-            foreach (Target t in T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0"));
-            lines.Add("#ratio\t" + JoinNums(colW) + "\t" + JoinNums(rowW));
+            if (cur != null) { cur.ColW = colW; cur.RowW = rowW; cur.Solo = solo; }
+            foreach (Workspace w in spaces)
+            {
+                lines.Add("#tab\t" + w.Name);
+                if (w.Started)
+                    foreach (Target t in w.T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0"));
+                else
+                    foreach (AppInfo a in w.Apps) lines.Add(a.Name + "\t" + a.Keys + "\t" + a.Url + "\t" + a.Color + "\t" + (a.SendPref >= 0 ? a.SendPref.ToString() : (a.IsAI ? "1" : "0")));
+                lines.Add("#ratio\t" + JoinNums(w.ColW) + "\t" + JoinNums(w.RowW));
+            }
+            if (cur != null) lines.Add("#active\t" + cur.Name);
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             lines.Add("#theme\t" + Th.Name);
             File.WriteAllLines(configFile, lines.ToArray(), Encoding.UTF8);
@@ -1352,7 +1403,7 @@ class MainForm : Form
     List<AppInfo> SettingsDialog()
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(firstRun ? "처음 설정" : "설정",
+        var f = Ui.Shell(firstRun ? "처음 설정" : "설정 · " + (cur != null ? cur.Name : "") + " 탭",
             firstRun ? "한 번만 정해 두면 다음부터는 아이콘만 눌러도 이대로 열려요" : "칸 수와 칸마다 열 앱을 고르세요",
             660, 716, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
 
@@ -1376,7 +1427,7 @@ class MainForm : Form
             usedNames.Add(cur.Name);
             slots[i] = cur;
         }
-        int count = Math.Max(2, Math.Min(8, T.Count / 2 * 2));
+        int count = T.Count == 0 ? 4 : Math.Max(2, Math.Min(8, T.Count / 2 * 2));
 
         var l1 = new Label();
         l1.Text = "칸 수"; l1.Font = new Font("Malgun Gothic", 10.5f, FontStyle.Bold); l1.ForeColor = Th.Text;
@@ -1489,6 +1540,131 @@ class MainForm : Form
         var result = new List<AppInfo>();
         for (int i = 0; i < count; i++) result.Add(slots[i]);
         return result;
+    }
+
+    // ---------- 탭 ----------
+    readonly List<IconBtn> tabBtns = new List<IconBtn>();
+    IconBtn tabAdd;
+
+    void SwitchTo(Workspace w)
+    {
+        if (w == cur || w == null) return;
+        cur.ColW = colW; cur.RowW = rowW; cur.Solo = solo;
+        foreach (Target t in T)
+        {
+            t.Cell.Visible = false;
+            if (t.Hwnd != IntPtr.Zero && !t.Hidden) { W.ShowWindowAsync(t.Hwnd, 0); t.Hidden = true; }
+        }
+        cur = w; T = w.T; colW = w.ColW; rowW = w.RowW; solo = w.Solo;
+        if (!w.Started)
+        {
+            w.Started = true;
+            var list = new List<Target>();
+            foreach (AppInfo a in w.Apps) list.Add(AddTarget(a));
+            DoLayout();
+            if (list.Count > 0) StartSearch(list);
+        }
+        else DoLayout();
+        foreach (Target t in T) { t.Rgn = ""; }
+        SyncWindows();
+        UpdateTabs();
+        UpdateHint();
+        SaveConfig();
+    }
+
+    void UpdateTabs()
+    {
+        if (bar == null) return;
+        foreach (IconBtn b in tabBtns) { bar.Controls.Remove(b); b.Dispose(); }
+        tabBtns.Clear();
+        foreach (Workspace w in spaces)
+        {
+            Workspace me = w;
+            var b = new IconBtn();
+            b.Text = w.Name; b.Ghost = w != cur; b.Active = w == cur; b.Radius = 8;
+            b.Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold);
+            b.MouseUp += delegate (object o, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Right) { TabMenu(me, b); return; }
+                if (e.Button == MouseButtons.Left) BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { SwitchTo(me); });
+            };
+            Tip(b, w == cur ? "지금 보고 있는 탭 · 오른쪽 클릭: 이름 바꾸기·지우기" : "「" + w.Name + "」 탭으로 바꾸기 · 오른쪽 클릭: 이름 바꾸기·지우기");
+            tabBtns.Add(b);
+            bar.Controls.Add(b);
+        }
+        LayoutBar();
+    }
+
+    void TabMenu(Workspace w, Control at)
+    {
+        var m = Ui.Menu();
+        var ren = new ToolStripMenuItem("이름 바꾸기...");
+        ren.Click += delegate
+        {
+            string n = AskName("탭 이름 바꾸기", w.Name);
+            if (n == null) return;
+            w.Name = n; UpdateTabs(); SaveConfig();
+        };
+        var apps = new ToolStripMenuItem("이 탭의 칸·앱 고르기...");
+        apps.Click += delegate { SwitchTo(w); OpenSettings(); };
+        var del = new ToolStripMenuItem("탭 지우기 (안의 앱도 닫혀요)");
+        del.Enabled = spaces.Count > 1;
+        del.Click += delegate { RemoveSpace(w); };
+        m.Items.Add(ren); m.Items.Add(apps); m.Items.Add(new ToolStripSeparator()); m.Items.Add(del);
+        m.Show(at, new Point(0, at.Height + 2));
+    }
+
+    void AddSpace()
+    {
+        string n = AskName("새 탭 만들기", "");
+        if (n == null) return;
+        var w = new Workspace(n);
+        w.Started = true;                      // 칸은 아래 설정에서 고름
+        spaces.Add(w);
+        Workspace back = cur;
+        SwitchTo(w);
+        List<AppInfo> chosen = SettingsDialog();
+        if (chosen == null) { RemoveSpace(w); SwitchTo(back); return; }
+        ApplySettings(chosen, true);
+        UpdateTabs();
+    }
+
+    void RemoveSpace(Workspace w)
+    {
+        if (spaces.Count <= 1 && w == cur && T.Count > 0) return;
+        if (w == cur)
+        {
+            Workspace other = null;
+            foreach (Workspace x in spaces) if (x != w) { other = x; break; }
+            if (other != null) SwitchTo(other);
+        }
+        foreach (Target t in w.T)
+        {
+            if (t.Hwnd != IntPtr.Zero) { W.CloseApp(t.Hwnd, t.OldStyle); used.Remove(t.Hwnd.ToInt64()); }
+            area.Controls.Remove(t.Cell); t.Cell.Dispose();
+        }
+        w.T.Clear();
+        spaces.Remove(w);
+        UpdateTabs();
+        SaveConfig();
+    }
+
+    // 이름 하나 묻는 작은 창
+    string AskName(string title, string start)
+    {
+        Panel body; IconBtn ok, cancel;
+        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업", 440, 290, "확인", out body, out ok, out cancel);
+        TextBox name = Ui.Field(body, "탭 이름", null, 24, 4, 440 - 48);
+        name.Text = start;
+        bool done = false;
+        Action go = delegate { if (name.Text.Trim().Length > 0) { done = true; f.DialogResult = DialogResult.OK; f.Close(); } };
+        ok.Click += delegate { go(); };
+        f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; go(); } };
+        f.Shown += delegate { name.Focus(); name.SelectAll(); };
+        f.ShowDialog(this);
+        if (!done) return null;
+        string n = name.Text.Trim().Replace("\t", " ");
+        return n.Length > 12 ? n.Substring(0, 12) : n;
     }
 
     // 테마를 바꾸면 지금 화면 색도 바로 바뀜
@@ -2207,6 +2383,18 @@ class MainForm : Form
         barBtns[3].SetBounds(r - sw, y, sw, h); r -= sw + 6;
         verLbl.SetBounds(r - 52, y, 52, h); r -= 52 + 8;
         if (updBtn.Visible) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
+        // 탭: [AI] [이미지] [+]
+        if (tabAdd != null)
+        {
+            r -= 6;
+            tabAdd.SetBounds(r - h, y, h, h); r -= h + 4;
+            for (int i = tabBtns.Count - 1; i >= 0; i--)
+            {
+                int tw = Math.Max(44, tabBtns[i].Need() - 6);
+                tabBtns[i].SetBounds(r - tw, y, tw, h); r -= tw + 4;
+            }
+            r -= 8;
+        }
         // 가운데: 상태 안내 글자
         if (sendHint != null) sendHint.SetBounds(x + 12, y, Math.Max(10, r - x - 12), h);
     }
@@ -2443,8 +2631,6 @@ class MainForm : Form
         if (t.Hwnd == IntPtr.Zero) { if (!quiet) Reopen(t); return; }
         IntPtr h = t.Hwnd;
         bool done = false, popupClosed = false;
-        string nm = t.App.Name.ToLowerInvariant();
-        bool web = t.Web;
         RunBackground(delegate
         {
             lock (newChatLock)
@@ -2454,13 +2640,14 @@ class MainForm : Form
                 var watcher = new System.Threading.Thread(delegate () { popupClosed = CloseSurprise(h, W.All()); });
                 watcher.IsBackground = true;
                 watcher.Start();
+                // 키보드·마우스는 쓰지 않고 앱 안의 「새 채팅」 버튼에 직접 눌러 달라고 알림
+                // 그래도 앱이 자기 창을 앞으로 가져오면, 쓰고 있던 창으로 바로 되돌림 (입력하던 커서가 안 뺏기게)
+                IntPtr fg = W.GetForegroundWindow();
                 done = Uia.ClickByName(h, NewChatNames);
-                if (!done && !web && (nm.Contains("chatgpt") || nm.Contains("gemini")))
+                for (int i = 0; i < 6; i++)
                 {
-                    // 버튼을 못 찾으면 새 채팅 단축키(Ctrl+Shift+O) — 그 앱이 정말 앞에 있을 때만
-                    W.ForceForeground(h);
-                    System.Threading.Thread.Sleep(200);
-                    if (W.GetForegroundWindow() == h) { keyCombo(0x4F); done = true; }
+                    System.Threading.Thread.Sleep(60);
+                    if (fg != IntPtr.Zero && W.GetForegroundWindow() != fg) { W.ForceForeground(fg); break; }
                 }
                 watcher.Join(done ? 3200 : 100);
 #endif
@@ -2614,7 +2801,7 @@ class MainForm : Form
         // 기본: 붙어 있던 앱들도 같이 닫음 / Shift를 누른 채 닫으면 앱은 따로 창으로 남김
         bool keep = keepOnClose;
         int i = 0;
-        foreach (Target t in T.ToArray())
+        foreach (Target t in AllTargets())
         {
             if (t.Hwnd != IntPtr.Zero)
             {
@@ -2692,6 +2879,7 @@ class MainForm : Form
         StartSearch(new List<Target>(T));
         MakeShortcut();
         try { MakeTray(); } catch { }
+        UpdateTabs();
         CheckUpdateLater();
     }
 
@@ -2820,7 +3008,7 @@ class MainForm : Form
         Dictionary<long, string> now = W.All();
         string me = Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
         var procs = new Dictionary<long, string>();
-        foreach (Target t in T)
+        foreach (Target t in AllTargets())
         {
             if (t.Hwnd != IntPtr.Zero) continue;
             anyLeft = true;
@@ -2861,6 +3049,7 @@ class MainForm : Form
                 t.Hwnd = h;
                 t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0;
                 FindTitleBar(t, h, proc);
+                if (!T.Contains(t)) { W.ShowWindowAsync(h, 0); t.Hidden = true; t.Wait.Visible = false; break; }   // 다른 탭의 칸이면 숨겨 둠
                 t.Pending = true;
                 t.CheckAt = DateTime.Now.AddMilliseconds(800);
                 if (t.WantNewChat) t.NewChatAt = DateTime.Now.AddMilliseconds(2500);
@@ -3040,7 +3229,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.8.1";
+    public const string Version = "1.9.0";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
