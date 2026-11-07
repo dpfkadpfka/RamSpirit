@@ -2121,6 +2121,7 @@ class MainForm : Form
         }
         foreach (Target t in T) { t.Rgn = ""; }
         SyncWindows();
+        ReshowSoon();
         UpdateTabs();
         UpdateHint();
         SaveConfig();
@@ -2173,6 +2174,31 @@ class MainForm : Form
             if (t.Lent) { t.Lent = false; t.Wait.Text = "불러오는 중..."; t.Wait.Visible = true; left.Add(t); }
         }
         if (left.Count > 0) StartSearch(left);
+    }
+
+    // 탭을 바꾼 직후, 숨겼다 다시 보이게 한 앱 창이 늦게 반응해서 안 보이는 일이 있어 잠시 뒤 한 번 더 보이게 함
+    Timer reshow;
+    int reshowLeft;
+    void ReshowSoon()
+    {
+        if (reshow == null)
+        {
+            reshow = new Timer(); reshow.Interval = 350;
+            reshow.Tick += delegate
+            {
+                if (--reshowLeft <= 0) reshow.Stop();
+                if (WindowState == FormWindowState.Minimized) return;
+                foreach (Target t in T)
+                {
+                    if (t.Hwnd == IntPtr.Zero || !t.Cell.Visible || t.TooSmall) continue;
+                    if (W.IsIconic(t.Hwnd) || !W.IsWindowVisible(t.Hwnd)) W.ShowWindowAsync(t.Hwnd, 4);
+                    t.Hidden = false; t.Rgn = "";
+                }
+                SyncWindows();
+            };
+        }
+        reshowLeft = 4;
+        reshow.Stop(); reshow.Start();
     }
 
     void UpdateTabs()
@@ -3550,6 +3576,7 @@ class MainForm : Form
             if (t.Hwnd == IntPtr.Zero || t.Hidden || !t.Cell.Visible) continue;
             bool exists = W.IsWindow(t.Hwnd);
             bool alive = exists && W.IsWindowVisible(t.Hwnd);
+            if (alive && W.IsIconic(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 4); t.Rgn = ""; SyncWindows(); continue; }   // 최소화돼 있으면 칸 안에 다시 펼침
             if (alive) { t.Missing = 0; KeepInCell(t); continue; }
             if (exists)
             {
