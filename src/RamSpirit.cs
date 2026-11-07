@@ -1276,6 +1276,7 @@ class Target
     public int Missing;    // 연속으로 안 보인 횟수
     public int Misfit;     // 칸에서 벗어난 횟수
     public bool Grown;     // 최소 크기 때문에 칸을 자동으로 키웠는지
+    public bool NoBrowser; // 같은 앱의 웹 창 칸이 따로 있어서, 이 칸은 브라우저 창을 안 붙임 (예: Claude 앱 칸 + Claude 웹 칸)
     public DateTime NewChatAt;
     public int CapH;       // 앱 자체 제목 줄 높이(최소화·닫기 버튼 아래끝까지), 0이면 없음
     public bool AutoHide;  // 제목 줄에 다른 버튼이 없어서 자동으로 감추는지
@@ -1310,7 +1311,8 @@ class Target
     {
         if (App.IsInstalled || string.IsNullOrEmpty(proc)) return true;
         string p = proc.Replace(" ", "").ToLowerInvariant();
-        if (p == "chrome" || p == "msedge" || p == "applicationframehost") return true;
+        if (p == "chrome" || p == "msedge") return !NoBrowser;
+        if (p == "applicationframehost") return true;
         if (App.PreferWeb) return false;   // 웹으로 열기로 했으면 데스크톱 앱 창은 안 붙임
         foreach (string k in App.Keys.Split('|'))
         {
@@ -3815,9 +3817,24 @@ class MainForm : Form
         catch { }
     }
 
+    // 같은 앱을 한 칸은 설치된 앱, 다른 칸은 웹 창으로 쓰면 → 앱 칸은 브라우저 창을 잡지 않게 표시
+    void MarkSiblings()
+    {
+        List<Target> all = AllTargets();
+        foreach (Target t in all)
+        {
+            bool sib = false;
+            if (!t.App.IsInstalled && !t.App.PreferWeb && !t.Web)
+                foreach (Target o in all)
+                    if (o != t && o.App.PreferWeb && o.App.Name == t.App.Name) { sib = true; break; }
+            t.NoBrowser = sib;
+        }
+    }
+
     // 그 앱 창이 이미 열려 있는지 (브라우저 창·스토어 앱 창은 빼고)
     bool AlreadyOpen(Target t)
     {
+        MarkSiblings();
         string me = W.ProcessOf(Handle);
         foreach (KeyValuePair<long, string> kv in before)
         {
@@ -3921,6 +3938,7 @@ class MainForm : Form
         }
 
         bool anyLeft = false;
+        MarkSiblings();
         Dictionary<long, string> now = W.All();
         string me = Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
         var procs = new Dictionary<long, string>();
@@ -4203,7 +4221,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.1.0";
+    public const string Version = "2.1.1";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
