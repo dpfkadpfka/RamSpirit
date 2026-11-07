@@ -608,6 +608,7 @@ class MainForm : Form
                 {
                     string[] p = line.Split('\t');
                     if (p.Length == 3 && p[0] == "#ratio") { cw = ParseNums(p[1]); rw = ParseNums(p[2]); continue; }
+                    if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
                     if (line.StartsWith("#")) continue;
                     if ((p.Length == 4 || p.Length == 5) && p[0].Length > 0 && p[2].Length > 0)
                     {
@@ -658,6 +659,7 @@ class MainForm : Form
             var lines = new List<string>();
             foreach (Target t in T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0"));
             lines.Add("#ratio\t" + JoinNums(colW) + "\t" + JoinNums(rowW));
+            lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             File.WriteAllLines(configFile, lines.ToArray(), Encoding.UTF8);
         }
         catch { }
@@ -1340,7 +1342,25 @@ class MainForm : Form
 
     // ---------- 한 번에 보내기 ----------
     TextBox q;
-    IconBtn sendBtn;
+    IconBtn sendBtn, compToggle;
+    Panel comp;
+    bool compOpen = true;
+
+    // 아래 입력창을 접으면 얇은 줄만 남고, 그만큼 칸이 커짐
+    void SetComposer(bool open)
+    {
+        compOpen = open;
+        foreach (Control c in comp.Controls) if (c != compToggle) c.Visible = open;
+        compToggle.Glyph = open ? "\uE70D" : "\uE70E";
+        compToggle.Text = open ? "입력창 접기" : "모두에게 보내기 열기";
+        tip.SetToolTip(compToggle, open ? "아래 입력창을 접어서 칸을 더 크게 봐요" : "모든 칸에 보내는 입력창을 다시 열어요");
+        comp.Height = open ? 96 : 36;
+        comp.PerformLayout();
+        int w = comp.ClientSize.Width, tw = compToggle.Need();
+        if (open) compToggle.SetBounds(w - 16 - tw, 66, tw, 24);
+        else compToggle.SetBounds(w - 16 - tw, 5, tw, 26);
+        if (open) q.Focus();
+    }
     Label qHint;
     Label sendHint;
 
@@ -1406,8 +1426,18 @@ class MainForm : Form
 
     void BuildComposer()
     {
-        var comp = new Panel();
+        comp = new Panel();
         comp.Dock = DockStyle.Bottom; comp.Height = 96; comp.BackColor = Th.Glass;
+        // 입력창 접기/펴기
+        compToggle = new IconBtn();
+        compToggle.Ghost = true; compToggle.BackColor = Th.Glass; compToggle.Radius = 8;
+        compToggle.Font = new Font("Malgun Gothic", 9f, FontStyle.Bold);
+        compToggle.Click += delegate { SetComposer(!compOpen); SaveConfig(); };
+        comp.Controls.Add(compToggle);
+        comp.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 0, 0, comp.Width, 0);
+        };
         var box = new Panel();
         box.BackColor = Th.Card;
         Th.Round(box, 16);
@@ -1456,7 +1486,10 @@ class MainForm : Form
             qHint.SetBounds(19, 13, Math.Max(80, box.Width - 40), 26);
             fileBtn.SetBounds(w - 16 - sw - 8 - fw, 12, fw, 50);
             sendBtn.SetBounds(w - 16 - sw, 12, sw, 50);
-            sendHint.SetBounds(20, 66, Math.Max(100, w - 40), 24);
+            sendHint.SetBounds(20, 66, Math.Max(100, w - 40 - 130), 24);
+            int tw = compToggle.Need();
+            if (compOpen) compToggle.SetBounds(w - 16 - tw, 66, tw, 24);
+            else compToggle.SetBounds(w - 16 - tw, 5, tw, 26);
         };
         box.Click += delegate { q.Focus(); };
         q.KeyDown += delegate (object s, KeyEventArgs e)
@@ -1814,6 +1847,7 @@ class MainForm : Form
     // ---------- 앱 켜고 붙이기 ----------
     void OnFirstShown()
     {
+        SetComposer(compOpen);
         DoLayout();
         Application.DoEvents();
         timer = new Timer();
@@ -2118,7 +2152,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.4.0";
+    public const string Version = "1.4.1";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
