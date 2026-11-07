@@ -799,6 +799,72 @@ class SwatchTile : Control
     }
 }
 
+// 켬/끔 스위치가 있는 설정 한 줄 (제목 + 설명)
+class SwitchRow : Control
+{
+    public bool Checked;
+    string title, desc;
+    bool hover;
+    public SwitchRow(string t, string d, bool on)
+    {
+        title = t; desc = d; Checked = on;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Cursor = Cursors.Hand;
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnClick(EventArgs e) { Checked = !Checked; Invalidate(); base.OnClick(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), 12))
+        using (var br = new SolidBrush(Color.White))
+        using (var pen = new Pen(hover ? Th.BorderHover : Th.Border))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+        using (var f = new Font("Malgun Gothic", 10.5f, FontStyle.Bold))
+        using (var br = new SolidBrush(Th.Text)) g.DrawString(title, f, br, 16, 10);
+        using (var f = new Font("Malgun Gothic", 8.8f))
+        using (var br = new SolidBrush(Th.Sub))
+            g.DrawString(desc, f, br, new RectangleF(16, 34, Width - 100, 22));
+        // 스위치
+        int sw = 44, sh = 24, x = Width - sw - 16, y = (Height - sh) / 2;
+        using (GraphicsPath p = Th.RoundPath(new Rectangle(x, y, sw, sh), sh / 2))
+        using (var br = new SolidBrush(Checked ? Th.Accent : Th.Mute)) g.FillPath(br, p);
+        int k = sh - 6;
+        using (var br = new SolidBrush(Color.White)) g.FillEllipse(br, Checked ? x + sw - k - 3 : x + 3, y + 3, k, k);
+    }
+}
+
+// 윈도우 시작할 때 자동 실행 (내 계정의 시작 프로그램 목록)
+static class AutoStart
+{
+    const string Key = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    public static bool Enabled
+    {
+        get
+        {
+            try { using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(Key)) return k != null && k.GetValue("RamSpirit") != null; }
+            catch { return false; }
+        }
+    }
+    public static void Set(bool on)
+    {
+        try
+        {
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(Key))
+            {
+                string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
+                if (on) k.SetValue("RamSpirit", "\"" + exe + "\"");
+                else k.DeleteValue("RamSpirit", false);
+            }
+        }
+        catch { }
+    }
+}
+
 // 칸 하나를 나타내는 카드 (번호 · 앱 색 · 앱 이름) — 누르면 앱 고르기
 class SlotCard : Control
 {
@@ -1085,7 +1151,6 @@ class GuideLine : Form
 class LoadCover : Form
 {
     public string Status = "";
-    Image logo;
 
     public LoadCover()
     {
@@ -1095,7 +1160,6 @@ class LoadCover : Form
         StartPosition = FormStartPosition.Manual;
         BackColor = Th.Bg1;
         DoubleBuffered = true;
-        try { logo = Icon.ExtractAssociatedIcon(Application.ExecutablePath).ToBitmap(); } catch { }
     }
 
     protected override bool ShowWithoutActivation { get { return true; } }
@@ -1110,6 +1174,26 @@ class LoadCover : Form
         }
     }
 
+    int angle;
+    Timer spin;
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (spin == null)
+        {
+            spin = new Timer();
+            spin.Interval = 30;
+            spin.Tick += delegate
+            {
+                angle = (angle + 9) % 360;
+                int cx = ClientSize.Width / 2, cy = ClientSize.Height / 2;
+                Invalidate(new Rectangle(cx - 40, cy - 110, 80, 80));
+            };
+        }
+        if (Visible) spin.Start(); else spin.Stop();
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
@@ -1119,7 +1203,14 @@ class LoadCover : Form
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         int cx = r.Width / 2, cy = r.Height / 2;
-        if (logo != null) g.DrawImage(logo, cx - 28, cy - 92, 56, 56);
+        // 빙글빙글 도는 로딩 고리
+        var ring = new Rectangle(cx - 26, cy - 96, 52, 52);
+        using (var pen = new Pen(Th.Line, 5f)) g.DrawEllipse(pen, ring);
+        using (var pen = new Pen(Th.Accent, 5f))
+        {
+            pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round;
+            g.DrawArc(pen, ring, angle, 100);
+        }
         using (var f = new Font("Malgun Gothic", 15f, FontStyle.Bold))
         using (var br = new SolidBrush(Th.Text))
         {
@@ -1384,7 +1475,8 @@ class MainForm : Form
             if (timer != null) timer.Stop();
             if (fixTimer != null) fixTimer.Stop();
             try { if (hookMove != IntPtr.Zero) W.UnhookWinEvent(hookMove); if (hookLoc != IntPtr.Zero) W.UnhookWinEvent(hookLoc); if (hookFg != IntPtr.Zero) W.UnhookWinEvent(hookFg); } catch { }
-            keepOnClose = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+            bool shift = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+            keepOnClose = closeApps ? shift : !shift;
             // 응답 없는 앱이 있어도 RamSpirit가 꺼지지 못하고 남지 않도록 따로 처리하고 최대 3초만 기다림
             var th = new System.Threading.Thread(ReleaseAll);
             th.IsBackground = true;
@@ -1410,6 +1502,9 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#ontop") { onTop = p[1] == "1"; continue; }
+                    if (p.Length == 2 && p[0] == "#ctrlenter") { ctrlEnterSend = p[1] == "1"; continue; }
+                    if (p.Length == 2 && p[0] == "#startnew") { startNewChat = p[1] != "0"; continue; }
+                    if (p.Length == 2 && p[0] == "#closeapps") { closeApps = p[1] != "0"; continue; }
                     if (line.StartsWith("#") && !line.StartsWith("#ratio")) continue;
                     if (w == null) { w = new Workspace("AI"); spaces.Add(w); }   // 예전 설정 파일(탭 없음)
                     if (p.Length == 3 && p[0] == "#ratio")
@@ -1483,6 +1578,9 @@ class MainForm : Form
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             lines.Add("#theme\t" + Th.Name);
             lines.Add("#ontop\t" + (onTop ? "1" : "0"));
+            lines.Add("#ctrlenter\t" + (ctrlEnterSend ? "1" : "0"));
+            lines.Add("#startnew\t" + (startNewChat ? "1" : "0"));
+            lines.Add("#closeapps\t" + (closeApps ? "1" : "0"));
             File.WriteAllLines(configFile, lines.ToArray(), Encoding.UTF8);
         }
         catch { }
@@ -1702,14 +1800,71 @@ class MainForm : Form
         if (chosen != null) ApplySettings(chosen, true);
     }
 
+    // 설정 창: 왼쪽 메뉴(칸 구성 · 화면 · 보내기 · 시작과 닫기 · 정보) + 오른쪽 내용
     List<AppInfo> SettingsDialog()
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(firstRun ? "처음 설정" : "설정 · " + (cur != null ? cur.Name : "") + " 탭",
-            firstRun ? "한 번만 정해 두면 다음부터는 아이콘만 눌러도 이대로 열려요" : "칸 수와 칸마다 열 앱을 고르세요",
-            660, 716, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
+        var f = Ui.Shell(firstRun ? "처음 설정" : "설정",
+            firstRun ? "한 번만 정해 두면 다음부터는 아이콘만 눌러도 이대로 열려요" : "「" + (cur != null ? cur.Name : "") + "」 탭과 RamSpirit 전체 설정",
+            860, 640, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
 
-        // 칸마다 처음 보여 줄 앱 (지금 칸 → 아직 안 쓴 AI 순서)
+        // 왼쪽 메뉴
+        var nav = new Panel();
+        nav.BackColor = Th.Glass;
+        nav.SetBounds(16, 0, 180, body.Height);
+        nav.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
+        body.Controls.Add(nav);
+        var host = new Panel();
+        host.BackColor = Th.Glass;
+        host.SetBounds(212, 0, 860 - 212 - 24, 640 - 84 - 72);
+        body.Controls.Add(host);
+        body.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 202, 4, 202, body.Height - 8);
+        };
+        int PW = host.Width;
+        var pages = new List<Panel>();
+        var navBtns = new List<IconBtn>();
+        Func<string, string, Panel> addPage = delegate (string glyph, string title)
+        {
+            var pg = new Panel();
+            pg.BackColor = Th.Glass;
+            pg.SetBounds(0, 0, host.Width, host.Height);
+            pg.Visible = false;
+            host.Controls.Add(pg);
+            var h = new Label();
+            h.Text = title; h.Font = new Font("Malgun Gothic", 13f, FontStyle.Bold); h.ForeColor = Th.Text;
+            h.AutoSize = true; h.Location = new Point(0, 2); h.BackColor = Th.Glass;
+            pg.Controls.Add(h);
+            var nb = new IconBtn();
+            nb.Glyph = glyph; nb.Text = title; nb.Ghost = true; nb.Radius = 10;
+            nb.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+            nb.SetBounds(0, navBtns.Count * 44, 180, 38);
+            int idx = pages.Count;
+            nb.Click += delegate
+            {
+                for (int k = 0; k < pages.Count; k++)
+                {
+                    pages[k].Visible = k == idx;
+                    navBtns[k].Active = k == idx; navBtns[k].Ghost = k != idx; navBtns[k].Invalidate();
+                }
+            };
+            nav.Controls.Add(nb);
+            navBtns.Add(nb);
+            pages.Add(pg);
+            return pg;
+        };
+        Func<Control, string, int, Label> section = delegate (Control parent, string text, int y)
+        {
+            var l = new Label();
+            l.Text = text; l.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); l.ForeColor = Th.Sub;
+            l.AutoSize = true; l.Location = new Point(0, y); l.BackColor = Th.Glass;
+            parent.Controls.Add(l);
+            return l;
+        };
+
+        // ===== 1. 칸 구성 =====
+        Panel p1 = addPage("\uE8A9", "칸 구성");
         var slots = new AppInfo[8];
         var usedNames = new List<string>();
         for (int i = 0; i < 8; i++)
@@ -1730,71 +1885,31 @@ class MainForm : Form
             slots[i] = cand;
         }
         int count = T.Count == 0 ? 4 : Math.Max(2, Math.Min(8, T.Count / 2 * 2));
-
-        var l1 = new Label();
-        l1.Text = "칸 수"; l1.Font = new Font("Malgun Gothic", 10.5f, FontStyle.Bold); l1.ForeColor = Th.Text;
-        l1.AutoSize = true; l1.Location = new Point(24, 6); l1.BackColor = Th.Glass;
-        body.Controls.Add(l1);
-
+        section(p1, "칸 수", 44);
         var tiles = new List<ChoiceTile>();
-        int tw = (660 - 48 - 3 * 12) / 4;
+        int tw = (PW - 3 * 10) / 4;
         int[] ns = { 2, 4, 6, 8 };
         for (int i = 0; i < 4; i++)
         {
             int n = ns[i];
             var tile = new ChoiceTile();
             tile.Text = n + "칸"; tile.Rows = n >= 4 ? 2 : 1; tile.Cols = n / tile.Rows;
-            tile.SetBounds(24 + i * (tw + 12), 34, tw, 76);
+            tile.SetBounds(i * (tw + 10), 70, tw, 72);
             tiles.Add(tile);
-            body.Controls.Add(tile);
+            p1.Controls.Add(tile);
         }
-
-        var l2 = new Label();
-        l2.Text = "칸마다 열 앱"; l2.Font = l1.Font; l2.ForeColor = Th.Text;
-        l2.AutoSize = true; l2.Location = new Point(24, 132); l2.BackColor = Th.Glass;
-        var l2s = new Label();
-        l2s.Text = "화면과 같은 자리예요 · 카드를 누르면 앱을 바꿀 수 있어요"; l2s.Font = Ui.Body; l2s.ForeColor = Th.Sub;
-        l2s.AutoSize = true; l2s.Location = new Point(124, 134); l2s.BackColor = Th.Glass;
-        body.Controls.Add(l2); body.Controls.Add(l2s);
-
+        section(p1, "칸마다 열 앱 · 화면과 같은 자리예요 (카드를 누르면 바꿔요)", 162);
         var grid = new Panel();
         grid.BackColor = Th.Glass;
-        grid.SetBounds(24, 162, 660 - 48, 290);
-
-        // 테마 색
-        var l3 = new Label();
-        l3.Text = "테마 색"; l3.Font = l1.Font; l3.ForeColor = Th.Text;
-        l3.AutoSize = true; l3.Location = new Point(24, 470); l3.BackColor = Th.Glass;
-        body.Controls.Add(l3);
-        string pickTheme = Th.Name;
-        var swatches = new List<SwatchTile>();
-        int sw = (660 - 48 - 4 * 10) / 5;
-        for (int i = 0; i < Th.Themes.Length; i++)
-        {
-            var st = new SwatchTile();
-            st.Text = Th.Themes[i][0];
-            string[] pv = Th.Themes[i][1].Split(' ');
-            st.A = ColorTranslator.FromHtml("#" + pv[0]); st.B = ColorTranslator.FromHtml("#" + pv[9]);
-            st.Selected = st.Text == pickTheme;
-            st.SetBounds(24 + i * (sw + 10), 498, sw, 52);
-            SwatchTile me = st;
-            st.Click += delegate
-            {
-                pickTheme = me.Text;
-                foreach (SwatchTile x in swatches) { x.Selected = x == me; x.Invalidate(); }
-            };
-            swatches.Add(st);
-            body.Controls.Add(st);
-        }
-        body.Controls.Add(grid);
-
+        grid.SetBounds(0, 188, PW, host.Height - 188 - 4);
+        p1.Controls.Add(grid);
         Action rebuild = null;
         rebuild = delegate
         {
             foreach (ChoiceTile tl in tiles) { tl.Selected = tl.Text == count + "칸"; tl.Invalidate(); }
             grid.SuspendLayout();
             while (grid.Controls.Count > 0) { Control c = grid.Controls[0]; grid.Controls.RemoveAt(0); c.Dispose(); }
-            int rows = count >= 4 ? 2 : 1, cols = count / rows, gap = 12;
+            int rows = count >= 4 ? 2 : 1, cols = count / rows, gap = 10;
             int cw = (grid.Width - gap * (cols - 1)) / cols;
             int ch = Math.Min(130, (grid.Height - gap * (rows - 1)) / rows);
             for (int i = 0; i < count; i++)
@@ -1833,12 +1948,105 @@ class MainForm : Form
         }
         rebuild();
 
+        // ===== 2. 화면 =====
+        Panel p2 = addPage("\uE790", "화면");
+        section(p2, "테마 색", 44);
+        string pickTheme = Th.Name;
+        var swatches = new List<SwatchTile>();
+        int sw = (PW - 4 * 10) / 5;
+        for (int i = 0; i < Th.Themes.Length; i++)
+        {
+            var st = new SwatchTile();
+            st.Text = Th.Themes[i][0];
+            string[] pv = Th.Themes[i][1].Split(' ');
+            st.A = ColorTranslator.FromHtml("#" + pv[0]); st.B = ColorTranslator.FromHtml("#" + pv[9]);
+            st.Selected = st.Text == pickTheme;
+            st.SetBounds(i * (sw + 10), 70, sw, 50);
+            SwatchTile meS = st;
+            st.Click += delegate
+            {
+                pickTheme = meS.Text;
+                foreach (SwatchTile x in swatches) { x.Selected = x == meS; x.Invalidate(); }
+            };
+            swatches.Add(st);
+            p2.Controls.Add(st);
+        }
+        section(p2, "창", 142);
+        var swTop = new SwitchRow("항상 위에 두기", "다른 프로그램을 눌러도 RamSpirit가 항상 위에 떠 있어요", onTop);
+        swTop.SetBounds(0, 168, PW, 62); p2.Controls.Add(swTop);
+        var swComp = new SwitchRow("아래 입력창 열어 두기", "끄면 입력창이 숨겨져서 앱 칸이 더 커져요 (위쪽 「한 번에 보내기」로 언제든 열기)", compOpen);
+        swComp.SetBounds(0, 236, PW, 62); p2.Controls.Add(swComp);
+
+        // ===== 3. 보내기 =====
+        Panel p3 = addPage("\uE724", "보내기");
+        section(p3, "보내는 키", 44);
+        var swCtrl = new SwitchRow("Ctrl+Enter로 보내기", "켜면 Enter는 줄바꿈이 되고 Ctrl+Enter로 보내요 (긴 글을 쓸 때 편해요)", ctrlEnterSend);
+        swCtrl.SetBounds(0, 70, PW, 62); p3.Controls.Add(swCtrl);
+        section(p3, "새 대화", 152);
+        var swNew = new SwitchRow("켤 때 모든 칸을 새 대화로", "RamSpirit를 켜면 칸마다 지난 대화 대신 새 대화로 시작해요", startNewChat);
+        swNew.SetBounds(0, 178, PW, 62); p3.Controls.Add(swNew);
+
+        // ===== 4. 시작과 닫기 =====
+        Panel p4 = addPage("\uE7E8", "시작과 닫기");
+        section(p4, "시작", 44);
+        var swAuto = new SwitchRow("윈도우를 켜면 RamSpirit도 켜기", "컴퓨터를 켜고 로그인하면 바로 칸에 앱이 들어간 화면이 열려요", AutoStart.Enabled);
+        swAuto.SetBounds(0, 70, PW, 62); p4.Controls.Add(swAuto);
+        section(p4, "닫기", 152);
+        var swClose = new SwitchRow("닫을 때 칸 안의 앱도 같이 닫기", "끄면 RamSpirit만 닫히고 앱들은 따로 창으로 남아요 (Shift를 누른 채 닫으면 반대로)", closeApps);
+        swClose.SetBounds(0, 178, PW, 62); p4.Controls.Add(swClose);
+
+        // ===== 5. 정보 =====
+        Panel p5 = addPage("\uE946", "정보");
+        var vl = new Label();
+        vl.Text = "RamSpirit v" + Updater.Version; vl.Font = new Font("Segoe UI", 15f, FontStyle.Bold); vl.ForeColor = Th.Text;
+        vl.AutoSize = true; vl.Location = new Point(0, 48); vl.BackColor = Th.Glass;
+        p5.Controls.Add(vl);
+        var vs = new Label();
+        vs.Text = "여러 AI 앱과 프로그램을 한 창에 모아 쓰는 윈도우 앱 · 만든 사람 김예람"; vs.Font = Ui.Body; vs.ForeColor = Th.Sub;
+        vs.AutoSize = true; vs.Location = new Point(2, 86); vs.BackColor = Th.Glass;
+        p5.Controls.Add(vs);
+        var bUpd = new IconBtn();
+        bUpd.Glyph = "\uE895"; bUpd.Text = Updater.Ready != null ? "새 버전 v" + Updater.Ready + " 적용하고 다시 시작" : "업데이트 확인"; bUpd.Radius = 10;
+        bUpd.SetBounds(0, 128, Math.Max(150, bUpd.Need()), 38);
+        bUpd.Click += delegate
+        {
+            if (Updater.Ready != null) { f.Close(); updBtn.PerformClick(); return; }
+            CheckUpdate(true, 0);
+            bUpd.Text = "확인 중... (결과는 위쪽 안내 줄에)"; bUpd.Width = bUpd.Need(); bUpd.Invalidate();
+        };
+        p5.Controls.Add(bUpd);
+        var bDir = new IconBtn();
+        bDir.Glyph = "\uE838"; bDir.Text = "설정 폴더 열기"; bDir.Radius = 10;
+        bDir.SetBounds(0, 176, Math.Max(150, bDir.Need()), 38);
+        bDir.Click += delegate { try { Process.Start("explorer.exe", Path.GetDirectoryName(configFile)); } catch { } };
+        p5.Controls.Add(bDir);
+        var bRel = new IconBtn();
+        bRel.Glyph = "\uE774"; bRel.Text = "다운로드 페이지 열기"; bRel.Radius = 10;
+        bRel.SetBounds(0, 224, Math.Max(150, bRel.Need()), 38);
+        bRel.Click += delegate { try { Process.Start("https://github.com/dpfkadpfka/ramspirit/releases/latest"); } catch { } };
+        p5.Controls.Add(bRel);
+
+        // 처음 페이지
+        navBtns[0].PerformClick();
+        if (firstRun) for (int k = 1; k < navBtns.Count; k++) navBtns[k].Visible = false;
+
         bool chosen = false;
         ok.Click += delegate { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); };
         f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); } };
         f.ShowDialog(this);
         if (!chosen) return null;
+
+        // 화면·보내기·시작 설정은 바로 적용
         if (pickTheme != Th.Name) SetTheme(pickTheme);
+        if (swTop.Checked != onTop) SetOnTop(swTop.Checked);
+        if (swComp.Checked != compOpen) SetComposer(swComp.Checked);
+        ctrlEnterSend = swCtrl.Checked;
+        startNewChat = swNew.Checked;
+        closeApps = swClose.Checked;
+        if (swAuto.Checked != AutoStart.Enabled) AutoStart.Set(swAuto.Checked);
+        UpdateHint();
+        SaveConfig();
+
         var result = new List<AppInfo>();
         for (int i = 0; i < count; i++) result.Add(slots[i]);
         return result;
@@ -2563,6 +2771,10 @@ class MainForm : Form
     // ---------- 항상 위 ----------
     bool onTop;
     IconBtn pinBtn;
+    bool ctrlEnterSend;          // Ctrl+Enter로 보내기 (Enter는 줄바꿈)
+    bool startNewChat = true;    // 켤 때 모든 칸을 새 대화로
+    bool closeApps = true;       // 닫을 때 칸 안 앱도 같이 닫기
+    bool startupSearch;
 
     void SetOnTop(bool on)
     {
@@ -2671,7 +2883,7 @@ class MainForm : Form
             for (int i = 0; i < attach.Count && i < 3; i++) names.Add(Path.GetFileName(attach[i]));
             files = "첨부 " + attach.Count + "개(" + string.Join(", ", names.ToArray()) + (attach.Count > 3 ? " 외" : "") + ") · ";
         }
-        sendHint.Text = files + "Enter 보내기 · Shift+Enter 줄바꿈 · 보이는 칸 중 " + n + "개에 보내요";
+        sendHint.Text = files + (ctrlEnterSend ? "Ctrl+Enter 보내기 · Enter 줄바꿈" : "Enter 보내기 · Shift+Enter 줄바꿈") + " · 보이는 칸 중 " + n + "개에 보내요";
         if (fileBtn != null) { fileBtn.Text = attach.Count > 0 ? "파일 " + attach.Count + "개" : "파일"; fileBtn.Active = attach.Count > 0; }
     }
 
@@ -2774,7 +2986,8 @@ class MainForm : Form
         box.Click += delegate { q.Focus(); };
         q.KeyDown += delegate (object s, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter && !e.Shift)
+            bool go = ctrlEnterSend ? (e.KeyCode == Keys.Enter && e.Control) : (e.KeyCode == Keys.Enter && !e.Shift && !e.Control);
+            if (go)
             {
                 e.SuppressKeyPress = true;
                 // 한글 입력 중 마지막 글자가 확정된 뒤 보내도록 한 박자 늦춤
@@ -3357,7 +3570,9 @@ class MainForm : Form
             else SaveConfig();
             firstRun = false;
         }
+        startupSearch = true;
         StartSearch(new List<Target>(T));
+        startupSearch = false;
         MakeShortcut();
         try { MakeTray(); } catch { }
         AppIcons.Changed = delegate
@@ -3461,7 +3676,7 @@ class MainForm : Form
         before = W.All();
         foreach (Target t in list)
         {
-            t.WantNewChat = true;
+            t.WantNewChat = !startupSearch || startNewChat;
             if (AlreadyOpen(t)) continue;   // 이미 켜져 있는 앱은 다시 켜지 않고 그 창을 바로 붙임
             Launch(t);
             System.Threading.Thread.Sleep(250);
@@ -3783,7 +3998,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.9";
+    public const string Version = "2.0.0";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
