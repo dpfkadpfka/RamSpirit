@@ -34,6 +34,9 @@ static class W
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    public delegate void WinEventProc(IntPtr hook, uint ev, IntPtr h, int idObject, int idChild, uint thread, uint time);
+    [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc cb, uint pid, uint tid, uint flags);
+    [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hook);
 
     // 붙어 있던 앱을 원래 창 모양으로 돌려놓은 뒤 닫기 (X 버튼을 누른 것과 같음)
     public static void CloseApp(IntPtr h, int oldStyle)
@@ -42,7 +45,7 @@ static class W
         Unclip(h);
         SetOwner(h, IntPtr.Zero);
         SetWindowLong(h, GWL_STYLE, oldStyle);
-        SetWindowPos(h, IntPtr.Zero, 100, 100, 1100, 800, NOZ | NOACT | FRAME);
+        SetWindowPos(h, IntPtr.Zero, 100, 100, 1100, 800, NOZ | NOACT | FRAME | 0x4000);
         PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);   // WM_CLOSE
     }
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
@@ -194,8 +197,8 @@ static class W
         Unclip(h);
         SetOwner(h, IntPtr.Zero);
         SetWindowLong(h, GWL_STYLE, oldStyle);
-        SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | FRAME);
-        ShowWindow(h, 5);
+        SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | FRAME | 0x4000);
+        ShowWindowAsync(h, 5);
     }
 }
 
@@ -678,6 +681,30 @@ static class Ui
     }
 }
 
+// 칸 사이 선을 끄는 동안 보이는 보라색 안내 선 (앱 창보다 위에)
+class GuideLine : Form
+{
+    public GuideLine()
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Th.Accent;
+        Opacity = 0.75;
+    }
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= 0x08000000 | 0x00000080 | 0x00000020;   // NOACTIVATE · TOOLWINDOW · 마우스 통과
+            return cp;
+        }
+    }
+}
+
 // 앱을 켜서 칸에 넣는 동안 잠깐 화면을 덮는 가림막 (앱 창이 커졌다 작아지는 모습이 안 보이게)
 class LoadCover : Form
 {
@@ -916,14 +943,32 @@ class MainForm : Form
         {
             if (e.Button != MouseButtons.Left || solo >= 0) return;
             dragColAt = HitCol(e.X); dragRowAt = HitRow(e.Y);
+            if (dragColAt >= 0 || dragRowAt >= 0) { dragPt = e.Location; ShowGuides(); }
         };
         area.MouseUp += delegate
         {
-            if (dragColAt >= 0 || dragRowAt >= 0) { dragColAt = -1; dragRowAt = -1; SaveConfig(); }
+            if (dragColAt < 0 && dragRowAt < 0) return;
+            HideGuides();
+            ApplySplit(dragPt);          // 놓았을 때 한 번만 칸 크기를 바꿈 → 앱 창이 들썩이지 않음
+            dragColAt = -1; dragRowAt = -1;
+            DoLayout();
+            SaveConfig();
         };
         Move += delegate { SyncWindows(); };
         Resize += delegate { SyncWindows(); };
-        FormClosing += delegate { ReleaseAll(); };
+        FormClosing += delegate
+        {
+            if (watch != null) watch.Stop();
+            if (timer != null) timer.Stop();
+            if (fixTimer != null) fixTimer.Stop();
+            try { if (hookMove != IntPtr.Zero) W.UnhookWinEvent(hookMove); if (hookLoc != IntPtr.Zero) W.UnhookWinEvent(hookLoc); } catch { }
+            keepOnClose = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+            // 응답 없는 앱이 있어도 RamSpirit가 꺼지지 못하고 남지 않도록 따로 처리하고 최대 3초만 기다림
+            var th = new System.Threading.Thread(ReleaseAll);
+            th.IsBackground = true;
+            th.Start();
+            th.Join(3000);
+        };
         Shown += delegate { OnFirstShown(); };
     }
 
@@ -1593,7 +1638,6 @@ class MainForm : Form
     const int Gap = 6;
     int[] Lx = new int[0], Lw = new int[0], Ly = new int[0], Lh = new int[0];
     int dragColAt = -1, dragRowAt = -1;
-    DateTime lastSplit = DateTime.MinValue;
 
     int HitCol(int x)
     {
@@ -1624,25 +1668,78 @@ class MainForm : Form
             area.Cursor = (c && r) ? Cursors.SizeAll : c ? Cursors.SizeWE : r ? Cursors.SizeNS : Cursors.Default;
             return;
         }
-        if ((DateTime.Now - lastSplit).TotalMilliseconds < 30) return;   // 너무 자주 다시 그리지 않게
-        lastSplit = DateTime.Now;
+        dragPt = e.Location;
+        MoveGuides();
+    }
+
+    Point dragPt;
+    GuideLine guideV, guideH;
+
+    // 끄는 위치를 칸 경계 안으로 제한 (한 칸이 너무 작아지지 않게)
+    int ClampX(int x)
+    {
+        int k = dragColAt;
+        if (k < 0 || k + 1 >= Lx.Length) return x;
+        int left = Lx[k], right = Lx[k + 1] + Lw[k + 1];
+        return Math.Max(left + 220, Math.Min(right - 220, x));
+    }
+
+    int ClampY(int y)
+    {
+        int k = dragRowAt;
+        if (k < 0 || k + 1 >= Ly.Length) return y;
+        int top = Ly[k], bottom = Ly[k + 1] + Lh[k + 1];
+        return Math.Max(top + 160, Math.Min(bottom - 160, y));
+    }
+
+    void ShowGuides()
+    {
+        if (dragColAt >= 0) { if (guideV == null) guideV = new GuideLine(); }
+        if (dragRowAt >= 0) { if (guideH == null) guideH = new GuideLine(); }
+        MoveGuides();
+        if (dragColAt >= 0) guideV.Show();
+        if (dragRowAt >= 0) guideH.Show();
+    }
+
+    void MoveGuides()
+    {
+        Rectangle a = area.RectangleToScreen(area.ClientRectangle);
+        if (dragColAt >= 0 && guideV != null)
+        {
+            int x = ClampX(dragPt.X);
+            guideV.Bounds = new Rectangle(a.X + x - 3, a.Y + 4, 6, a.Height - 8);
+        }
+        if (dragRowAt >= 0 && guideH != null)
+        {
+            int y = ClampY(dragPt.Y);
+            guideH.Bounds = new Rectangle(a.X + 4, a.Y + y - 3, a.Width - 8, 6);
+        }
+    }
+
+    void HideGuides()
+    {
+        if (guideV != null) guideV.Hide();
+        if (guideH != null) guideH.Hide();
+    }
+
+    void ApplySplit(Point pt)
+    {
         int k = dragColAt;
         if (k >= 0 && k + 1 < Lx.Length && k + 1 < colW.Length)
         {
             int left = Lx[k], span = Lx[k + 1] + Lw[k + 1] - left - Gap;
-            int px = Math.Max(160, Math.Min(span - 160, e.X - left));
+            int px = ClampX(pt.X) - left - Gap / 2;
             double total = colW[k] + colW[k + 1];
-            if (span > 320) { colW[k] = total * px / span; colW[k + 1] = total - colW[k]; }
+            if (span > 100) { colW[k] = total * px / span; colW[k + 1] = total - colW[k]; }
         }
         k = dragRowAt;
         if (k >= 0 && k + 1 < Ly.Length && k + 1 < rowW.Length)
         {
             int top = Ly[k], span = Ly[k + 1] + Lh[k + 1] - top - Gap;
-            int py = Math.Max(120, Math.Min(span - 120, e.Y - top));
+            int py = ClampY(pt.Y) - top - Gap / 2;
             double total = rowW[k] + rowW[k + 1];
-            if (span > 240) { rowW[k] = total * py / span; rowW[k + 1] = total - rowW[k]; }
+            if (span > 100) { rowW[k] = total * py / span; rowW[k + 1] = total - rowW[k]; }
         }
-        DoLayout();
     }
 
     void SyncWindows()
@@ -2265,18 +2362,17 @@ class MainForm : Form
     }
 
     bool released_ = false;
+    bool keepOnClose;
     public void SafeRelease() { ReleaseAll(); }
 
     void ReleaseAll()
     {
         if (released_) return;
         released_ = true;
-        if (watch != null) watch.Stop();
-        if (timer != null) timer.Stop();
         // 기본: 붙어 있던 앱들도 같이 닫음 / Shift를 누른 채 닫으면 앱은 따로 창으로 남김
-        bool keep = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+        bool keep = keepOnClose;
         int i = 0;
-        foreach (Target t in T)
+        foreach (Target t in T.ToArray())
         {
             if (t.Hwnd != IntPtr.Zero)
             {
@@ -2291,8 +2387,48 @@ class MainForm : Form
 
 
     // ---------- 앱 켜고 붙이기 ----------
+    // 다른 앱 창이 옮겨지기 시작하거나 위치가 바뀌는 순간을 알려 받음
+    W.WinEventProc winEvt;
+    IntPtr hookMove, hookLoc;
+    readonly List<Target> needFix = new List<Target>();
+    Timer fixTimer;
+
+    void HookWindows()
+    {
+        winEvt = OnWinEvent;
+        hookMove = W.SetWinEventHook(0x000A, 0x000A, IntPtr.Zero, winEvt, 0, 0, 2);   // 끌어서 옮기기·크기 바꾸기 시작
+        hookLoc = W.SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, winEvt, 0, 0, 2);    // 위치·크기 바뀜
+        fixTimer = new Timer();
+        fixTimer.Interval = 120;
+        fixTimer.Tick += delegate
+        {
+            fixTimer.Stop();
+            var list = new List<Target>(needFix);
+            needFix.Clear();
+            foreach (Target t in list)
+                if (t.Hwnd != IntPtr.Zero && !t.Hidden && t.Cell.Visible && dragColAt < 0 && dragRowAt < 0) KeepInCell(t);
+        };
+    }
+
+    void OnWinEvent(IntPtr hook, uint ev, IntPtr h, int idObject, int idChild, uint thread, uint time)
+    {
+        if (idObject != 0 || h == IntPtr.Zero) return;
+        Target t = null;
+        foreach (Target x in T) if (x.Hwnd == h) { t = x; break; }
+        if (t == null) return;
+        if (ev == 0x000A)
+        {
+            // 칸 안의 앱을 끌어서 옮기거나 크기를 바꾸려 하면 바로 취소
+            W.PostMessage(h, 0x001F, IntPtr.Zero, IntPtr.Zero);   // WM_CANCELMODE
+            return;
+        }
+        if (!needFix.Contains(t)) needFix.Add(t);
+        if (fixTimer != null && !fixTimer.Enabled) fixTimer.Start();
+    }
+
     void OnFirstShown()
     {
+        try { HookWindows(); } catch { }
         SetComposer(compOpen);
         DoLayout();
         Application.DoEvents();
@@ -2644,7 +2780,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.7.0";
+    public const string Version = "1.7.1";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -2752,6 +2888,25 @@ public static class Program
             // 이전 RamSpirit가 아직 안 꺼졌으면 끝내고 넘겨받음
             try { Process.GetProcessById(oldPid).Kill(); } catch { }
             try { first = mutex.WaitOne(10000); } catch (System.Threading.AbandonedMutexException) { first = true; }
+        }
+        if (!first && !restart)
+        {
+            Process me = Process.GetCurrentProcess();
+            bool shown = false;
+            foreach (Process p in Process.GetProcessesByName(me.ProcessName))
+            {
+                if (p.Id == me.Id) continue;
+                IntPtr hw = IntPtr.Zero;
+                try { hw = p.MainWindowHandle; } catch { }
+                if (hw != IntPtr.Zero && W.IsWindowVisible(hw)) { W.ShowWindow(hw, 9); W.SetForegroundWindow(hw); shown = true; }
+            }
+            if (shown) return;                       // 정말 켜져 있으면 그 창을 보여 줌
+            foreach (Process p in Process.GetProcessesByName(me.ProcessName))
+            {
+                if (p.Id == me.Id) continue;
+                try { p.Kill(); p.WaitForExit(3000); } catch { }   // 화면 없이 남은 RamSpirit는 끝냄
+            }
+            try { first = mutex.WaitOne(5000); } catch (System.Threading.AbandonedMutexException) { first = true; }
         }
         if (!first) return;
         Lock = mutex;
