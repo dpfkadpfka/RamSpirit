@@ -211,6 +211,7 @@ class AppInfo
     public AppInfo(string name, string keys, string url, string color) { Name = name; Keys = keys; Url = url; Color = color; }
     public override string ToString() { return Name; }
     public int SendPref = -1;   // 한 번에 보내기 대상 여부 (-1이면 AI 이름이면 켬)
+    public bool PreferWeb;      // 컴퓨터에 앱이 있어도 웹 창으로 열기
     static readonly System.Text.RegularExpressions.Regex AiRe = new System.Text.RegularExpressions.Regex(
         "chatgpt|gemini|claude|grok|perplexity|copilot|deepseek|뤼튼|wrtn|le chat|mistral|notebooklm|클로드|제미나이|퍼플렉시티",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1173,6 +1174,7 @@ class Target
         if (App.IsInstalled || string.IsNullOrEmpty(proc)) return true;
         string p = proc.Replace(" ", "").ToLowerInvariant();
         if (p == "chrome" || p == "msedge" || p == "applicationframehost") return true;
+        if (App.PreferWeb) return false;   // 웹으로 열기로 했으면 데스크톱 앱 창은 안 붙임
         foreach (string k in App.Keys.Split('|'))
         {
             string kk = k.Replace(" ", "").ToLowerInvariant();
@@ -1391,10 +1393,11 @@ class MainForm : Form
                         if (cw != null && rw != null) { w.ColW = cw; w.RowW = rw; }
                         continue;
                     }
-                    if ((p.Length == 4 || p.Length == 5) && p[0].Length > 0 && p[2].Length > 0)
+                    if (p.Length >= 4 && p.Length <= 6 && p[0].Length > 0 && p[2].Length > 0)
                     {
                         var a = new AppInfo(p[0], p[1], p[2], p[3]);
-                        if (p.Length == 5) a.SendPref = p[4] == "1" ? 1 : 0;
+                        if (p.Length >= 5) a.SendPref = p[4] == "1" ? 1 : 0;
+                        if (p.Length == 6) a.PreferWeb = p[5] == "web";
                         w.Apps.Add(a);
                     }
                 }
@@ -1446,7 +1449,7 @@ class MainForm : Form
             {
                 lines.Add("#tab\t" + w.Name);
                 if (w.Started)
-                    foreach (Target t in w.T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0"));
+                    foreach (Target t in w.T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0") + (t.App.PreferWeb ? "\tweb" : ""));
                 else
                     foreach (AppInfo a in w.Apps) lines.Add(a.Name + "\t" + a.Keys + "\t" + a.Url + "\t" + a.Color + "\t" + (a.SendPref >= 0 ? a.SendPref.ToString() : (a.IsAI ? "1" : "0")));
                 lines.Add("#ratio\t" + JoinNums(w.ColW) + "\t" + JoinNums(w.RowW));
@@ -1519,6 +1522,7 @@ class MainForm : Form
             try { Process.Start("explorer.exe", "shell:AppsFolder\\" + t.App.Url.Substring(4)); } catch { }
             return;
         }
+        if (t.App.PreferWeb) { OpenWeb(t); t.Web = true; return; }
         if (startApps == null) startApps = StartApps();
         string id = null;
         foreach (string n in new string[] { t.App.Name, "Google " + t.App.Name, t.App.Name + " AI" })
@@ -2053,6 +2057,19 @@ class MainForm : Form
             if (a != null) ChangeApp(t, a);
         };
         menu.Items.Add(custom);
+        if (!t.App.IsInstalled && t.App.Url != null && t.App.Url.StartsWith("http"))
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var webItem = new ToolStripMenuItem(t.App.PreferWeb ? "컴퓨터에 설치된 앱으로 열기" : "웹 창으로 열기 (앱이 칸에 안 맞을 때)");
+            webItem.Click += delegate
+            {
+                var a = new AppInfo(t.App.Name, t.App.Keys, t.App.Url, t.App.Color);
+                a.SendPref = t.SendOn ? 1 : 0;
+                a.PreferWeb = !t.App.PreferWeb;
+                ChangeApp(t, a);
+            };
+            menu.Items.Add(webItem);
+        }
         menu.Show(t.Change, new Point(0, t.Change.Height));
     }
 
@@ -3151,7 +3168,7 @@ class MainForm : Form
         if (ww > r.Width + 10) t.MinW = Math.Max(t.MinW, ww);
         if (wh > r.Height + 10) t.MinH = Math.Max(t.MinH, wh);
         Log(t.App.Name + " 앱 최소 크기 " + ww + "x" + wh + " > 칸 " + r.Width + "x" + r.Height);
-        if (solo < 0 && t.Misfit <= 3) { AutoGrow(t, ww, wh); return; }
+        if (solo < 0 && t.Misfit <= 3) { AutoGrow(t, ww > r.Width + 10 ? ww : 0, wh > r.Height + 10 ? wh : 0); return; }
         if (t.Misfit == 4)
             t.Lbl.Text = "  " + t.App.Name + "  (칸이 이 프로그램의 최소 크기보다 작아요 · 칸 수를 줄이거나 「크게 보기」를 써 주세요)";
     }
@@ -3181,21 +3198,21 @@ class MainForm : Form
         EnsureRatio(cols, rows);
         int i = T.IndexOf(t), c = i % cols, r = i / cols, g = 4;
         int availW = area.ClientSize.Width - (cols + 1) * g, availH = area.ClientSize.Height - (rows + 1) * g;
-        if (rows > 1 && availH > 0)
+        if (rows > 1 && availH > 0 && needH > 0)
         {
-            double f = Math.Min(0.8, (needH + 60.0) / availH), other = 0;
+            double f = Math.Min(0.7, (needH + 56.0) / availH), other = 0;
             for (int k = 0; k < rows; k++) if (k != r) other += rowW[k];
             if (f > rowW[r] / (other + rowW[r])) rowW[r] = f * other / (1 - f);
         }
-        if (cols > 1 && availW > 0)
+        if (cols > 1 && availW > 0 && needW > 0)
         {
-            double f = Math.Min(0.8, (needW + 24.0) / availW), other = 0;
+            double f = Math.Min(0.7, (needW + 24.0) / availW), other = 0;
             for (int k = 0; k < cols; k++) if (k != c) other += colW[k];
             if (f > colW[c] / (other + colW[c])) colW[c] = f * other / (1 - f);
         }
         SaveConfig();
         DoLayout();
-        sendHint.Text = t.App.Name + " 앱이 더 작아지지 않아서 그 칸을 앱 크기만큼 넓혔어요.";
+        sendHint.Text = t.App.Name + " 앱이 " + (needH > 0 ? "높이 " + needH : "너비 " + needW) + "보다 작아지지 않아서 그 칸을 넓혔어요 · 칸 크기를 똑같이 쓰려면 「바꾸기」에서 「웹 창으로 열기」";
     }
 
     // 그 칸의 앱만 다시 열기
@@ -3696,7 +3713,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.6";
+    public const string Version = "1.9.7";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
@@ -3807,6 +3824,7 @@ public static class Program
             try { Process.GetProcessById(oldPid).Kill(); } catch { }
             try { first = mutex.WaitOne(10000); } catch (System.Threading.AbandonedMutexException) { first = true; }
         }
+        try { CmdMsg = W.RegisterWindowMessage("RamSpirit_Command"); } catch { }
         // 작업 표시줄 메뉴에서 온 명령 (--cmd update 등)
         int cmd = 0;
         for (int i = 0; i + 1 < args.Length; i++)
@@ -3872,7 +3890,7 @@ public static class Program
 
     static System.Threading.Mutex Lock;
     public static int StartCmd;
-    public static readonly uint CmdMsg = W.RegisterWindowMessage("RamSpirit_Command");
+    public static uint CmdMsg;
 
     // 「다시 시작」 때 새 RamSpirit가 바로 켜질 수 있게 잠금을 먼저 풂
     public static void ReleaseLock()
