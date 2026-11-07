@@ -801,6 +801,20 @@ class Target
         return false;
     }
 
+    // AI 앱 칸은 그 앱 자신의 창이나 브라우저(웹 창)만 붙임 — 제목에 이름만 들어간 다른 프로그램(Codex·VS Code 등)은 제외
+    public bool ProcOk(string proc)
+    {
+        if (App.IsInstalled || string.IsNullOrEmpty(proc)) return true;
+        string p = proc.Replace(" ", "").ToLowerInvariant();
+        if (p == "chrome" || p == "msedge" || p == "applicationframehost") return true;
+        foreach (string k in App.Keys.Split('|'))
+        {
+            string kk = k.Replace(" ", "").ToLowerInvariant();
+            if (kk.Length > 0 && (p.Contains(kk) || kk.Contains(p))) return true;
+        }
+        return false;
+    }
+
     public bool Matches(string title, string proc)
     {
         foreach (string k in App.Keys.Split('|'))
@@ -2472,6 +2486,20 @@ class MainForm : Form
         CheckUpdateLater();
     }
 
+    // 어떤 창을 어느 칸에 붙였는지 기록 (켤 때마다 새로 씀)
+    bool logStarted;
+    void Log(string line)
+    {
+        try
+        {
+            string f = Path.Combine(Path.GetDirectoryName(configFile), "attach.log");
+            string text = DateTime.Now.ToString("HH:mm:ss") + "  " + line + "\r\n";
+            if (!logStarted) { File.WriteAllText(f, "RamSpirit v" + Updater.Version + "\r\n" + text, Encoding.UTF8); logStarted = true; }
+            else File.AppendAllText(f, text, Encoding.UTF8);
+        }
+        catch { }
+    }
+
     // 그 앱 창이 이미 열려 있는지 (브라우저 창·스토어 앱 창은 빼고)
     bool AlreadyOpen(Target t)
     {
@@ -2482,7 +2510,7 @@ class MainForm : Form
             if (h == Handle || used.Contains(kv.Key)) continue;
             string proc = W.ProcessOf(h);
             if (proc == me || proc == "chrome" || proc == "msedge") continue;
-            if (!t.Matches(kv.Value, proc) || !t.IsAppWindow(kv.Value, proc)) continue;
+            if (!t.Matches(kv.Value, proc) || !t.IsAppWindow(kv.Value, proc) || !t.ProcOk(proc)) continue;
             string cls = W.ClassOf(h);
             if (cls == "ApplicationFrameWindow" || cls == "Windows.UI.Core.CoreWindow") continue;
             return true;
@@ -2599,7 +2627,7 @@ class MainForm : Form
                 }
                 if (!t.Matches(kv.Value, proc)) continue;
                 if (proc == null) { if (!procs.TryGetValue(kv.Key, out proc)) { proc = W.ProcessOf(h); procs[kv.Key] = proc; } }
-                if (proc == me) continue;
+                if (proc == me || !t.ProcOk(proc)) continue;
                 if (before.ContainsKey(kv.Key) && !released.Contains(kv.Key))
                 {
                     // 원래 켜져 있던 앱 창은 기다리지 않고 바로 붙임 (일반 브라우저 창·이름만 비슷한 다른 창은 제외)
@@ -2616,6 +2644,7 @@ class MainForm : Form
                 used.Add(kv.Key);
                 released.Remove(kv.Key);
                 t.Wait.Visible = false;
+                Log(t.App.Name + " ← 창 \"" + kv.Value + "\" (" + proc + ", " + cls + ")");
                 int old = W.Attach(h, Handle);
                 if (!origStyles.ContainsKey(kv.Key)) origStyles[kv.Key] = old;   // 다시 붙여도 원래 모양 기억
                 t.OldStyle = origStyles[kv.Key];
@@ -2802,7 +2831,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.7.4";
+    public const string Version = "1.7.5";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
