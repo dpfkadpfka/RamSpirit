@@ -1248,6 +1248,7 @@ class Target
     public bool Hidden, Web, Pending;
     public DateTime CheckAt;
     public bool WantNewChat;
+    public bool TooSmall;  // 창이 작아서 이 앱이 칸에 안 들어감 → 잠시 숨김
     public bool Lost;      // 칸 안의 앱이 닫힘
     public int Missing;    // 연속으로 안 보인 횟수
     public int Misfit;     // 칸에서 벗어난 횟수
@@ -1684,7 +1685,7 @@ class MainForm : Form
 
         var lbl = new Label();
         lbl.Dock = DockStyle.Fill; lbl.Font = font;
-        lbl.ForeColor = Th.Text; lbl.TextAlign = ContentAlignment.MiddleLeft; lbl.BackColor = Th.Card;
+        lbl.ForeColor = Th.Text; lbl.TextAlign = ContentAlignment.MiddleLeft; lbl.BackColor = Th.Card; lbl.AutoEllipsis = true; lbl.UseMnemonic = false;
         lbl.Cursor = Cursors.SizeAll;
         lbl.DoubleClick += delegate { ToggleSolo(t); };
         lbl.MouseDown += delegate (object s, MouseEventArgs e)
@@ -1742,7 +1743,7 @@ class MainForm : Form
         var wait = new Label();
         wait.Dock = DockStyle.Fill; wait.Text = "불러오는 중..."; wait.ForeColor = Th.Sub;
         wait.TextAlign = ContentAlignment.MiddleCenter; wait.Font = font;
-        wait.Click += delegate { if (t.Lost || t.Hwnd == IntPtr.Zero) Reopen(t); };
+        wait.Click += delegate { if (t.TooSmall) { ToggleSolo(t); return; } if (t.Lost || t.Hwnd == IntPtr.Zero) Reopen(t); };
         body.Controls.Add(wait);
 
         cell.Controls.Add(body);
@@ -1788,7 +1789,7 @@ class MainForm : Form
             released.Add(t.Hwnd.ToInt64());
             t.Hwnd = IntPtr.Zero;
         }
-        t.Pending = false; t.Hidden = false; t.Web = false;
+        t.Pending = false; t.Hidden = false; t.Web = false; t.TooSmall = false;
     }
 
     // ---------- 설정 창 ----------
@@ -2622,6 +2623,12 @@ class MainForm : Form
             if (t.Cell.Visible)
             {
                 Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+                if (t.TooSmall)
+                {
+                    // 칸이 다시 앱 최소 크기만큼 커졌으면 다시 보여 줌, 아니면 계속 숨겨 둠
+                    if (r.Width + 10 >= t.MinW && r.Height + 10 >= t.MinH) { t.TooSmall = false; t.Misfit = 0; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; }
+                    else continue;
+                }
                 int top = t.Top;
                 W.Place(t.Hwnd, r.X, r.Y - top, r.Width, r.Height + top);
                 ClipTo(t, top, r.Width, r.Height);
@@ -3398,7 +3405,7 @@ class MainForm : Form
     {
         if (busy) return;
         // RamSpirit가 최소화됐거나 칸이 접혀 있을 때(0x0)는 잴 수 없음 → 아무것도 기억하지 않음
-        if (WindowState == FormWindowState.Minimized || !Visible || !t.Cell.Visible || dragColAt >= 0 || dragRowAt >= 0) return;
+        if (t.TooSmall || WindowState == FormWindowState.Minimized || !Visible || !t.Cell.Visible || dragColAt >= 0 || dragRowAt >= 0) return;
         if (t.Body.ClientSize.Width < 120 || t.Body.ClientSize.Height < 120) return;
         Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
         int top = t.Top;
@@ -3436,9 +3443,25 @@ class MainForm : Form
         if (ww > r.Width + 10) t.MinW = Math.Max(t.MinW, ww);
         if (wh > r.Height + 10) t.MinH = Math.Max(t.MinH, wh);
         Log(t.App.Name + " 앱 최소 크기 " + ww + "x" + wh + " > 칸 " + r.Width + "x" + r.Height);
-        if (solo < 0 && t.Misfit <= 3) { AutoGrow(t, ww > r.Width + 10 ? ww : 0, wh > r.Height + 10 ? wh : 0); return; }
-        if (t.Misfit == 4)
-            t.Lbl.Text = "  " + t.App.Name + "  (칸이 이 프로그램의 최소 크기보다 작아요 · 칸 수를 줄이거나 「크게 보기」를 써 주세요)";
+        if (solo >= 0) return;
+        // 화면을 꽉 채운 상태에서는 그 줄·열을 넓혀 봄. 창을 줄여 둔 상태이거나 넓혀도 안 되면 → 창 밖으로 튀어나오지 않게 잠시 숨김
+        bool canGrow = WindowState == FormWindowState.Maximized
+            && (wh <= r.Height + 10 || wh + 60 <= area.ClientSize.Height * 0.7)
+            && (ww <= r.Width + 10 || ww + 30 <= area.ClientSize.Width * 0.7);
+        if (canGrow && t.Misfit <= 3) { AutoGrow(t, ww > r.Width + 10 ? ww : 0, wh > r.Height + 10 ? wh : 0); return; }
+        HideTooSmall(t);
+    }
+
+    void HideTooSmall(Target t)
+    {
+        t.TooSmall = true;
+        if (t.Guard != null) t.Guard.Hide();
+        W.ShowWindowAsync(t.Hwnd, 0);
+        t.Hidden = true;
+        t.Wait.Text = "창이 작아서 " + t.App.Name + "을(를) 잠시 숨겼어요\n창을 키우면 다시 나타나요 · 여기를 누르면 크게 보기";
+        t.Wait.Cursor = Cursors.Hand;
+        t.Wait.Visible = true;
+        t.Wait.BringToFront();
     }
 
     // 웹 창으로 바꾸기
@@ -4010,7 +4033,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.3";
+    public const string Version = "2.0.4";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
