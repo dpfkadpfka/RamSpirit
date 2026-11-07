@@ -340,6 +340,21 @@ class Target
 
     public Target(AppInfo a) { App = a; }
 
+    // 이미 열려 있던 창이 정말 그 앱의 창인지 (탐색기 폴더·문서 제목에 이름만 들어간 창은 빼기)
+    public bool IsAppWindow(string title, string proc)
+    {
+        if (App.IsInstalled) return true;
+        string p = (proc ?? "").Replace(" ", "").ToLowerInvariant();
+        foreach (string k in App.Keys.Split('|'))
+        {
+            if (k.Length == 0) continue;
+            string kk = k.Replace(" ", "").ToLowerInvariant();
+            if (p.Length > 0 && (p.Contains(kk) || kk.Contains(p))) return true;
+            if (string.Equals(title.Trim(), k, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     public bool Matches(string title, string proc)
     {
         foreach (string k in App.Keys.Split('|'))
@@ -1646,12 +1661,31 @@ class MainForm : Form
         CheckUpdateLater();
     }
 
+    // 그 앱 창이 이미 열려 있는지 (브라우저 창·스토어 앱 창은 빼고)
+    bool AlreadyOpen(Target t)
+    {
+        string me = W.ProcessOf(Handle);
+        foreach (KeyValuePair<long, string> kv in before)
+        {
+            IntPtr h = new IntPtr(kv.Key);
+            if (h == Handle || used.Contains(kv.Key)) continue;
+            string proc = W.ProcessOf(h);
+            if (proc == me || proc == "chrome" || proc == "msedge") continue;
+            if (!t.Matches(kv.Value, proc) || !t.IsAppWindow(kv.Value, proc)) continue;
+            string cls = W.ClassOf(h);
+            if (cls == "ApplicationFrameWindow" || cls == "Windows.UI.Core.CoreWindow") continue;
+            return true;
+        }
+        return false;
+    }
+
     void StartSearch(List<Target> list)
     {
         before = W.All();
         foreach (Target t in list)
         {
             t.WantNewChat = true;
+            if (AlreadyOpen(t)) continue;   // 이미 켜져 있는 앱은 다시 켜지 않고 그 창을 바로 붙임
             Launch(t);
             System.Threading.Thread.Sleep(250);
         }
@@ -1662,7 +1696,6 @@ class MainForm : Form
     void Tick()
     {
         double sec = (DateTime.Now - start).TotalSeconds;
-        bool late = sec > 12;
 
         // 켤 때·앱을 바꿀 때: 설치된 앱은 마지막 대화가 열려 있으니 새 대화로 돌림 (웹 창은 처음부터 새 대화)
         foreach (Target t in T.ToArray())
@@ -1715,9 +1748,8 @@ class MainForm : Form
                 if (proc == me) continue;
                 if (before.ContainsKey(kv.Key) && !released.Contains(kv.Key))
                 {
-                    // 원래 켜져 있던 창은 잠시 뒤에만(설치 프로그램 3초, 그 밖 12초), 그리고 일반 브라우저 창은 제외
-                    bool ok = t.App.IsInstalled ? sec > 3 : late;
-                    if (!ok || proc == "chrome" || proc == "msedge") continue;
+                    // 원래 켜져 있던 앱 창은 기다리지 않고 바로 붙임 (일반 브라우저 창·이름만 비슷한 다른 창은 제외)
+                    if (proc == "chrome" || proc == "msedge" || !t.IsAppWindow(kv.Value, proc)) continue;
                 }
                 string cls = W.ClassOf(h);
                 if (!t.App.IsInstalled && (cls == "ApplicationFrameWindow" || cls == "Windows.UI.Core.CoreWindow"))
@@ -1911,7 +1943,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.3.0";
+    public const string Version = "1.3.1";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
