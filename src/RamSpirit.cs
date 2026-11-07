@@ -1404,7 +1404,7 @@ class MainForm : Form
         bar.Controls.Add(allNew);
         var resetBtn = new IconBtn();
         resetBtn.Ghost = true; resetBtn.Glyph = "\uE8A9"; resetBtn.Text = "칸 크기 같게";
-        resetBtn.Click += delegate { ResetRatio(); };
+        resetBtn.Click += delegate { foreach (Target x in T) { x.MinW = 0; x.MinH = 0; x.Misfit = 0; } ResetRatio(); };
         Tip(resetBtn, "끌어서 바꾼 칸 크기를 모두 똑같이 되돌려요");
         bar.Controls.Add(resetBtn);
         compToggle = new IconBtn();
@@ -3268,7 +3268,8 @@ class MainForm : Form
     // ---------- 새 대화 ----------
     static readonly string[] NewChatNames = new string[] {
         "New chat", "New Chat", "New conversation", "Start new chat",
-        "새 채팅", "새 대화", "새로운 채팅", "새 채팅 시작", "새 대화 시작" };
+        "새 채팅", "새 대화", "새로운 채팅", "새 채팅 시작", "새 대화 시작",
+        "New session", "새 세션", "새로 만들기" };
 
     // 앱 안의 「새 채팅」 버튼을 찾아 누름(일꾼 스레드). 웹 창은 못 찾으면 창을 새로 열어서 새 대화로
     void NewChat(Target t) { NewChat(t, false); }
@@ -3396,6 +3397,9 @@ class MainForm : Form
     void KeepInCell(Target t)
     {
         if (busy) return;
+        // RamSpirit가 최소화됐거나 칸이 접혀 있을 때(0x0)는 잴 수 없음 → 아무것도 기억하지 않음
+        if (WindowState == FormWindowState.Minimized || !Visible || !t.Cell.Visible || dragColAt >= 0 || dragRowAt >= 0) return;
+        if (t.Body.ClientSize.Width < 120 || t.Body.ClientSize.Height < 120) return;
         Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
         int top = t.Top;
         r = new Rectangle(r.X, r.Y - top, r.Width, r.Height + top);
@@ -3406,6 +3410,9 @@ class MainForm : Form
         if (!moved)
         {
             t.Misfit = 0;
+            // 지금 칸 크기에 잘 들어가 있으면, 예전에 잘못 기억한 최소 크기는 버림
+            if (t.MinW > ww + 10) t.MinW = 0;
+            if (t.MinH > wh + 10) t.MinH = 0;
             if (t.Rgn.Length > 0 && !W.HasRgn(t.Hwnd))
             {
                 t.Rgn = "";
@@ -4003,7 +4010,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.2";
+    public const string Version = "2.0.3";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
