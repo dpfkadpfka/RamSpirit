@@ -472,6 +472,130 @@ class IconBtn : Control
     }
 }
 
+// 앱 아이콘: 컴퓨터에 설치된 앱이면 그 앱의 아이콘을 윈도우에서 받아 오고, 없으면 사이트의 작은 아이콘(파비콘)을 받아 옴
+static class AppIcons
+{
+    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItemImageFactory { [PreserveSig] int GetImage(SIZE size, int flags, out IntPtr phbm); }
+    [StructLayout(LayoutKind.Sequential)] struct SIZE { public int cx, cy; }
+    [StructLayout(LayoutKind.Sequential)] struct BITMAP { public int bmType, bmWidth, bmHeight, bmWidthBytes; public short bmPlanes, bmBitsPixel; public IntPtr bmBits; }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory ppv);
+    [DllImport("gdi32.dll")] static extern int GetObject(IntPtr h, int size, ref BITMAP bm);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
+
+    static readonly Dictionary<string, Image> cache = new Dictionary<string, Image>();
+    static readonly List<string> pending = new List<string>();
+    static readonly Queue<KeyValuePair<string, string>> work = new Queue<KeyValuePair<string, string>>();
+    static System.Threading.Thread worker;
+    public static Dictionary<string, string> Installed;   // 설치된 앱 이름 → 실행 ID
+    public static Action Changed;                         // 아이콘을 새로 받았을 때 (화면 다시 그리기)
+
+    static string Key(AppInfo a) { return a.Name + "|" + a.Url; }
+
+    public static Image Get(AppInfo a)
+    {
+        if (a == null) return null;
+        string k = Key(a);
+        lock (cache)
+        {
+            Image img;
+            if (cache.TryGetValue(k, out img)) return img;
+            if (pending.Contains(k)) return null;
+            pending.Add(k);
+            // 설치된 앱 ID 찾기 (없으면 사이트 주소로)
+            string src = null;
+            if (a.Url.StartsWith("app:")) src = "app:" + a.Url.Substring(4);
+            else if (Installed != null)
+            {
+                string id;
+                foreach (string n in new string[] { a.Name, "Google " + a.Name, a.Name + " AI" })
+                    if (Installed.TryGetValue(n, out id)) { src = "app:" + id; break; }
+            }
+            if (src == null) src = a.Url;
+            work.Enqueue(new KeyValuePair<string, string>(k, src));
+            if (worker == null || !worker.IsAlive)
+            {
+                worker = new System.Threading.Thread(Run);
+                worker.IsBackground = true;
+                worker.SetApartmentState(System.Threading.ApartmentState.STA);
+                worker.Start();
+            }
+        }
+        return null;
+    }
+
+    static void Run()
+    {
+        while (true)
+        {
+            KeyValuePair<string, string> job;
+            lock (cache) { if (work.Count == 0) return; job = work.Dequeue(); }
+            Image img = null;
+            try { img = job.Value.StartsWith("app:") ? ShellIcon("shell:AppsFolder\\" + job.Value.Substring(4), 64) : Favicon(job.Value); }
+            catch { }
+            lock (cache) { cache[job.Key] = img; pending.Remove(job.Key); }
+            if (img != null && Changed != null) try { Changed(); } catch { }
+        }
+    }
+
+    static Image ShellIcon(string path, int size)
+    {
+        IShellItemImageFactory f;
+        SHCreateItemFromParsingName(path, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out f);
+        IntPtr hbm;
+        var sz = new SIZE { cx = size, cy = size };
+        if (f.GetImage(sz, 0x4 /* 아이콘만 */, out hbm) != 0 || hbm == IntPtr.Zero) return null;
+        try
+        {
+            var bm = new BITMAP();
+            GetObject(hbm, Marshal.SizeOf(typeof(BITMAP)), ref bm);
+            if (bm.bmBits == IntPtr.Zero || bm.bmBitsPixel != 32) return Image.FromHbitmap(hbm);
+            // 투명한 부분을 살려서 복사 (위아래가 뒤집혀 있음)
+            var tmp = new Bitmap(bm.bmWidth, bm.bmHeight, bm.bmWidthBytes, System.Drawing.Imaging.PixelFormat.Format32bppPArgb, bm.bmBits);
+            var copy = new Bitmap(bm.bmWidth, bm.bmHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(copy)) g.DrawImage(tmp, 0, 0);
+            tmp.Dispose();
+            copy.RotateFlip(RotateFlipType.RotateNoneFlipY);
+            return copy;
+        }
+        finally { DeleteObject(hbm); }
+    }
+
+    static Image Favicon(string url)
+    {
+        string host;
+        try { host = new Uri(url).Host; } catch { return null; }
+        string dir = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit"), "icons");
+        string file = Path.Combine(dir, host + ".png");
+        if (!File.Exists(file))
+        {
+            Directory.CreateDirectory(dir);
+            System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+            var wc = new System.Net.WebClient();
+            wc.Headers.Add("User-Agent", "RamSpirit");
+            wc.DownloadFile("https://www.google.com/s2/favicons?domain=" + host + "&sz=64", file);
+        }
+        using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read))
+        using (var img = Image.FromStream(fs))
+            return new Bitmap(img);
+    }
+
+    // 메뉴용 작은 아이콘 (20px)
+    public static Image Small(AppInfo a)
+    {
+        Image img = Get(a);
+        if (img == null) return null;
+        var b = new Bitmap(20, 20);
+        using (Graphics g = Graphics.FromImage(b))
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.DrawImage(img, 0, 0, 20, 20);
+        }
+        return b;
+    }
+}
+
 // 둥근 상자(흰 바탕 + 연한 테두리) — 입력칸·목록 바탕
 class RoundBox : Panel
 {
@@ -605,13 +729,22 @@ class SlotCard : Control
         string nm = App != null ? App.Name : "";
         int d = Height >= 110 ? 40 : 32;
         int cx = Width / 2, top = (Height - d - 30) / 2;
-        using (var br = new SolidBrush(c)) g.FillEllipse(br, cx - d / 2, top, d, d);
-        using (var f = new Font("Segoe UI", d >= 40 ? 15f : 12f, FontStyle.Bold))
-        using (var br = new SolidBrush(Color.White))
+        Image ic = AppIcons.Get(App);
+        if (ic != null)
         {
-            string ini = nm.Length > 0 ? nm.Substring(0, 1).ToUpper() : "?";
-            SizeF s = g.MeasureString(ini, f);
-            g.DrawString(ini, f, br, cx - s.Width / 2f + 1, top + (d - s.Height) / 2f + 1);
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.DrawImage(ic, cx - d / 2, top, d, d);
+        }
+        else
+        {
+            using (var br = new SolidBrush(c)) g.FillEllipse(br, cx - d / 2, top, d, d);
+            using (var f = new Font("Segoe UI", d >= 40 ? 15f : 12f, FontStyle.Bold))
+            using (var br = new SolidBrush(Color.White))
+            {
+                string ini = nm.Length > 0 ? nm.Substring(0, 1).ToUpper() : "?";
+                SizeF s = g.MeasureString(ini, f);
+                g.DrawString(ini, f, br, cx - s.Width / 2f + 1, top + (d - s.Height) / 2f + 1);
+            }
         }
         using (var sf = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
         using (var br = new SolidBrush(Th.Text))
@@ -908,6 +1041,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return 0; } }
+    public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
     public Rectangle CapBtns = Rectangle.Empty;   // 앱의 최소화·최대화·닫기 버튼 자리 (창 기준)
     public Form Guard;                           // 그 버튼들을 덮는 가림판
     public Color GuardColor = Color.White;
@@ -1089,6 +1223,10 @@ class MainForm : Form
             using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
         };
         bar.Resize += delegate { LayoutBar(); };
+        pinBtn = new IconBtn();
+        pinBtn.Ghost = true; pinBtn.Glyph = "\uE718"; pinBtn.Radius = 8;
+        pinBtn.Click += delegate { SetOnTop(!onTop); SaveConfig(); };
+        bar.Controls.Add(pinBtn);
         tabAdd = new IconBtn();
         tabAdd.Ghost = true; tabAdd.Glyph = "\uE710"; tabAdd.Radius = 8;
         tabAdd.Click += delegate { AddSpace(); };
@@ -1140,6 +1278,7 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#tab") { w = new Workspace(p[1].Trim()); spaces.Add(w); continue; }
                     if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
+                    if (p.Length == 2 && p[0] == "#ontop") { onTop = p[1] == "1"; continue; }
                     if (line.StartsWith("#") && !line.StartsWith("#ratio")) continue;
                     if (w == null) { w = new Workspace("AI"); spaces.Add(w); }   // 예전 설정 파일(탭 없음)
                     if (p.Length == 3 && p[0] == "#ratio")
@@ -1211,6 +1350,7 @@ class MainForm : Form
             if (cur != null) lines.Add("#active\t" + cur.Name);
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             lines.Add("#theme\t" + Th.Name);
+            lines.Add("#ontop\t" + (onTop ? "1" : "0"));
             File.WriteAllLines(configFile, lines.ToArray(), Encoding.UTF8);
         }
         catch { }
@@ -1301,12 +1441,16 @@ class MainForm : Form
         head.Dock = DockStyle.Top; head.Height = 36; head.Padding = new Padding(0, 4, 0, 4);
         // 앱 색 동그라미
         var dot = new Panel();
-        dot.Dock = DockStyle.Left; dot.Width = 20; dot.BackColor = Th.Card;
+        dot.Dock = DockStyle.Left; dot.BackColor = Th.Card;
+        dot.Width = 26;
         dot.Paint += delegate (object o, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            Image ic = AppIcons.Get(t.App);
+            if (ic != null) { e.Graphics.DrawImage(ic, 5, (dot.Height - 18) / 2, 18, 18); return; }
             Color c = ColorTranslator.FromHtml((string)(dot.Tag ?? "#6d5bf6"));
-            using (var br = new SolidBrush(c)) e.Graphics.FillEllipse(br, 6, (dot.Height - 10) / 2, 10, 10);
+            using (var br = new SolidBrush(c)) e.Graphics.FillEllipse(br, 9, (dot.Height - 10) / 2, 10, 10);
         };
 
         var lbl = new Label();
@@ -1532,7 +1676,7 @@ class MainForm : Form
                     foreach (AppInfo pr in AppInfo.Presets)
                     {
                         AppInfo pick = pr;
-                        var it = new ToolStripMenuItem(pr.Name);
+                        var it = new ToolStripMenuItem(pr.Name, AppIcons.Small(pr));
                         it.Checked = pr.SameAs(slots[idx]);
                         it.Click += delegate { slots[idx] = pick; card.App = pick; card.Invalidate(); };
                         m.Items.Add(it);
@@ -1785,7 +1929,7 @@ class MainForm : Form
         foreach (AppInfo p in AppInfo.Presets)
         {
             AppInfo pick = p;
-            var item = new ToolStripMenuItem(p.Name);
+            var item = new ToolStripMenuItem(p.Name, AppIcons.Small(p));
             if (p.Name == t.App.Name) item.Checked = true;
             item.Click += delegate { ChangeApp(t, pick); };
             menu.Items.Add(item);
@@ -2038,7 +2182,16 @@ class MainForm : Form
         int k = dragColAt;
         if (k < 0 || k + 1 >= Lx.Length) return x;
         int left = Lx[k], right = Lx[k + 1] + Lw[k + 1];
-        return Math.Max(left + 220, Math.Min(right - 220, x));
+        int n = T.Count, rows = n >= 4 ? 2 : 1, cols = Math.Max(1, n / rows);
+        int minL = 220, minR = 220;
+        for (int i = 0; i < n; i++)
+        {
+            if (T[i].MinW <= 0) continue;
+            if (i % cols == k) minL = Math.Max(minL, T[i].MinW + 12);
+            if (i % cols == k + 1) minR = Math.Max(minR, T[i].MinW + 12);
+        }
+        if (minL + minR > right - left) return (left + right) / 2;
+        return Math.Max(left + minL, Math.Min(right - minR, x));
     }
 
     int ClampY(int y)
@@ -2046,7 +2199,16 @@ class MainForm : Form
         int k = dragRowAt;
         if (k < 0 || k + 1 >= Ly.Length) return y;
         int top = Ly[k], bottom = Ly[k + 1] + Lh[k + 1];
-        return Math.Max(top + 160, Math.Min(bottom - 160, y));
+        int n = T.Count, rows = n >= 4 ? 2 : 1, cols = Math.Max(1, n / rows);
+        int minT = 160, minB = 160;
+        for (int i = 0; i < n; i++)
+        {
+            if (T[i].MinH <= 0) continue;
+            if (i / cols == k) minT = Math.Max(minT, T[i].MinH + 52);
+            if (i / cols == k + 1) minB = Math.Max(minB, T[i].MinH + 52);
+        }
+        if (minT + minB > bottom - top) return (top + bottom) / 2;
+        return Math.Max(top + minT, Math.Min(bottom - minB, y));
     }
 
     void ShowGuides()
@@ -2148,7 +2310,10 @@ class MainForm : Form
         }, delegate
         {
             if (t.Hwnd != h || got.IsEmpty) return;
-            t.CapBtns = got;
+            W.RECT wr0; W.GetWindowRect(h, out wr0);
+            int winW = wr0.R - wr0.L;
+            // X 자리에 「창 오른쪽 끝에서 버튼 왼쪽 끝까지 거리」를 넣어 둠
+            t.CapBtns = new Rectangle(winW - got.X, got.Y, got.Width, got.Height);
             // 가림판 색: 버튼 바로 왼쪽의 앱 바탕색
             try
             {
@@ -2172,7 +2337,7 @@ class MainForm : Form
         if (t.CapBtns.IsEmpty || t.Hwnd == IntPtr.Zero) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (t.Hidden || !t.Cell.Visible) { if (t.Guard != null) t.Guard.Hide(); return; }
         Rectangle b = t.Body.RectangleToScreen(t.Body.ClientRectangle);
-        var r = new Rectangle(b.X + t.CapBtns.X, b.Y + t.CapBtns.Y, t.CapBtns.Width, t.CapBtns.Height);
+        var r = new Rectangle(b.Right - t.CapBtns.X, b.Y + t.CapBtns.Y, t.CapBtns.Width, t.CapBtns.Height);
         r.Intersect(b);
         if (r.Width <= 0 || r.Height <= 0) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (t.Guard == null || t.Guard.IsDisposed)
@@ -2181,17 +2346,86 @@ class MainForm : Form
             g.Owner = this;
             t.Guard = g;
         }
+        if (!t.Guard.Visible && !OursInFront()) return;    // 다른 프로그램을 쓰는 중엔 새로 띄우지 않음 (그 위로 튀어나오지 않게)
+        t.GuardColor = SampleLeftOf(r, t.GuardColor);
         t.Guard.BackColor = t.GuardColor;
         t.Guard.Bounds = r;
         if (!t.Guard.Visible) t.Guard.Show();
-        W.SetWindowPos(t.Guard.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);   // 맨 위로(활성화 없이)
+        // 앱 창을 가림판 바로 아래로 (다른 프로그램과의 앞뒤 순서는 건드리지 않음)
+        W.SetWindowPos(t.Hwnd, t.Guard.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
     }
 
     void RaiseGuards()
     {
+        if (!OursInFront()) return;          // 다른 프로그램을 쓰는 중이면 아무것도 안 함
         foreach (Target t in T)
-            if (t.Guard != null && !t.Guard.IsDisposed && t.Guard.Visible)
-                W.SetWindowPos(t.Guard.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+        {
+            if (t.Hwnd == IntPtr.Zero || t.Hidden) continue;
+            if (t.Guard == null || t.Guard.IsDisposed || !t.Guard.Visible) { PlaceGuard(t); continue; }
+            W.SetWindowPos(t.Hwnd, t.Guard.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
+        }
+        // 앞에 오는 창이 바뀌면 제목 줄 색이 바뀌므로 잠깐 뒤 가림판 색도 다시 맞춤
+        if (guardTimer == null)
+        {
+            guardTimer = new Timer();
+            guardTimer.Interval = 250;
+            guardTimer.Tick += delegate
+            {
+                guardTimer.Stop();
+                foreach (Target t in T)
+                    if (t.Guard != null && !t.Guard.IsDisposed && t.Guard.Visible)
+                    {
+                        Color c = SampleLeftOf(t.Guard.Bounds, t.GuardColor);
+                        if (c != t.GuardColor) { t.GuardColor = c; t.Guard.BackColor = c; }
+                    }
+            };
+        }
+        guardTimer.Stop(); guardTimer.Start();
+    }
+
+    Timer guardTimer;
+
+    // 지금 맨 앞 창이 RamSpirit나 칸 안의 앱인지
+    bool OursInFront()
+    {
+        IntPtr fg = W.GetForegroundWindow();
+        if (fg == IntPtr.Zero) return false;
+        uint pid; W.GetWindowThreadProcessId(fg, out pid);
+        if (pid == (uint)Process.GetCurrentProcess().Id) return true;
+        foreach (Target t in T) if (t.Hwnd == fg) return true;
+        return false;
+    }
+
+    // ---------- 항상 위 ----------
+    bool onTop;
+    IconBtn pinBtn;
+
+    void SetOnTop(bool on)
+    {
+        onTop = on;
+        TopMost = on;
+        if (pinBtn != null)
+        {
+            pinBtn.Active = on; pinBtn.Ghost = !on;
+            pinBtn.Glyph = on ? "\uE841" : "\uE718";
+            pinBtn.Invalidate();
+            Tip(pinBtn, on ? "항상 위: 켜짐 (누르면 끔)" : "항상 위: 꺼짐 — 누르면 다른 창보다 항상 위에 떠 있어요");
+        }
+    }
+
+    // 화면에서 그 사각형 바로 왼쪽 점의 색
+    static Color SampleLeftOf(Rectangle r, Color fallback)
+    {
+        try
+        {
+            using (var bmp = new Bitmap(1, 1))
+            {
+                using (Graphics g = Graphics.FromImage(bmp))
+                    g.CopyFromScreen(r.X - 4, r.Y + Math.Min(4, r.Height / 3), 0, 0, new Size(1, 1));
+                return bmp.GetPixel(0, 0);
+            }
+        }
+        catch { return fallback; }
     }
 
     void ToggleSolo(Target t)
@@ -2443,6 +2677,7 @@ class MainForm : Form
         int sw = barBtns[3].Need() - 6;
         barBtns[3].SetBounds(r - sw, y, sw, h); r -= sw + 6;
         verLbl.SetBounds(r - 52, y, 52, h); r -= 52 + 8;
+        if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 8; }
         if (updBtn.Visible) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
         // 탭: [AI] [이미지] [+]
         if (tabAdd != null)
@@ -2792,8 +3027,11 @@ class MainForm : Form
         bool over = ww > r.Width + 10 || wh > r.Height + 10;
         if (!over) return;
         if (++t.Misfit < 2) return;          // 한 번 더 맞춰 보고도 크면
-        if (!t.App.IsInstalled && !t.Web) { SwitchToWeb(t); return; }
-        if (t.App.IsInstalled && !t.Grown && solo < 0) { t.Grown = true; AutoGrow(t, ww, wh); return; }
+        // 데스크톱 앱은 웹 창으로 바꾸지 않음 → 앱이 들어가도록 칸을 넓히고, 그 크기를 기억해 선을 더 좁히지 못하게
+        if (ww > r.Width + 10) t.MinW = Math.Max(t.MinW, ww);
+        if (wh > r.Height + 10) t.MinH = Math.Max(t.MinH, wh);
+        Log(t.App.Name + " 앱 최소 크기 " + ww + "x" + wh + " > 칸 " + r.Width + "x" + r.Height);
+        if (solo < 0 && t.Misfit <= 3) { AutoGrow(t, ww, wh); return; }
         if (t.Misfit == 4)
             t.Lbl.Text = "  " + t.App.Name + "  (칸이 이 프로그램의 최소 크기보다 작아요 · 칸 수를 줄이거나 「크게 보기」를 써 주세요)";
     }
@@ -2837,7 +3075,7 @@ class MainForm : Form
         }
         SaveConfig();
         DoLayout();
-        sendHint.Text = t.App.Name + " 프로그램이 들어가도록 칸 크기를 자동으로 넓혔어요. 「비율 초기화」로 되돌릴 수 있어요.";
+        sendHint.Text = t.App.Name + " 앱이 더 작아지지 않아서 그 칸을 앱 크기만큼 넓혔어요.";
     }
 
     // 그 칸의 앱만 다시 열기
@@ -2942,7 +3180,22 @@ class MainForm : Form
         StartSearch(new List<Target>(T));
         MakeShortcut();
         try { MakeTray(); } catch { }
+        AppIcons.Changed = delegate
+        {
+            try
+            {
+                BeginInvoke((System.Windows.Forms.MethodInvoker)delegate
+                {
+                    foreach (Target x in AllTargets()) if (x.Dot != null) x.Dot.Invalidate();
+                });
+            }
+            catch { }
+        };
+        try { if (startApps == null) startApps = StartApps(); AppIcons.Installed = startApps; } catch { }
+        foreach (AppInfo a in AppInfo.Presets) AppIcons.Get(a);
+        foreach (Target x in AllTargets()) AppIcons.Get(x.App);
         UpdateTabs();
+        SetOnTop(onTop);
         CheckUpdateLater();
     }
 
@@ -3058,13 +3311,13 @@ class MainForm : Form
             int[] sz = W.Size(t.Hwnd);
             Rectangle r = t.Body.ClientRectangle;
             bool over = sz[0] > r.Width + 10 || sz[1] > r.Height + 10;
-            if (over && t.App.IsInstalled && t.Cell.Visible)
+            if (over && t.Cell.Visible && solo < 0)
             {
-                // 웹 창으로 바꿀 수 없는 프로그램은 안내만 표시
-                t.Lbl.Text = "  " + t.App.Name + "  (칸이 프로그램 최소 크기보다 작아요 · 칸 사이 틈을 끌어 키워 주세요)";
-                continue;
+                // 앱이 칸보다 크면 칸을 넓힘 (웹 창으로 바꾸지 않음)
+                if (sz[0] > r.Width + 10) t.MinW = Math.Max(t.MinW, sz[0]);
+                if (sz[1] > r.Height + 10) t.MinH = Math.Max(t.MinH, sz[1]);
+                AutoGrow(t, sz[0], sz[1]);
             }
-            if (!t.Web && t.Cell.Visible && over) SwitchToWeb(t);
         }
 
         bool anyLeft = false;
@@ -3323,7 +3576,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.1";
+    public const string Version = "1.9.5";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
