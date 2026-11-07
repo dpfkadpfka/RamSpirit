@@ -2072,15 +2072,47 @@ class MainForm : Form
             w.Started = true;
             var list = new List<Target>();
             foreach (AppInfo a in w.Apps) list.Add(AddTarget(a));
+            foreach (Target t in list) ClaimFromOtherTabs(t);
+            list.RemoveAll(delegate (Target t) { return t.Hwnd != IntPtr.Zero; });
             DoLayout();
             if (list.Count > 0) StartSearch(list);
         }
-        else DoLayout();
+        else
+        {
+            foreach (Target t in T) ClaimFromOtherTabs(t);
+            DoLayout();
+        }
         foreach (Target t in T) { t.Rgn = ""; }
         SyncWindows();
         UpdateTabs();
         UpdateHint();
         SaveConfig();
+    }
+
+    // 같은 앱(Claude·ChatGPT처럼 창이 하나뿐인 앱)이 다른 탭에도 들어 있으면 그 창을 지금 탭으로 데려옴
+    // → 두 탭이 한 창을 서로 끌어당기지 않음. 원래 탭으로 돌아가면 다시 그쪽으로 감
+    void ClaimFromOtherTabs(Target t)
+    {
+        if (t.Hwnd != IntPtr.Zero) return;
+        foreach (Workspace w in spaces)
+        {
+            if (w == cur) continue;
+            foreach (Target o in w.T)
+            {
+                if (o.Hwnd == IntPtr.Zero || o.Web || !o.App.SameAs(t.App)) continue;
+                if (!W.IsWindow(o.Hwnd)) continue;
+                t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = false;
+                t.Hidden = true; t.Pending = false; t.Lost = false; t.Missing = 0; t.Misfit = 0;
+                t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false;
+                t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
+                o.Hwnd = IntPtr.Zero; o.Hidden = false; o.Pending = false; o.TooSmall = false;
+                if (o.Guard != null) { o.Guard.Dispose(); o.Guard = null; }
+                o.Wait.Text = o.App.Name + "은(는) 「" + cur.Name + "」 탭에서 쓰는 중이에요\n이 탭으로 돌아오면 다시 여기로 와요";
+                o.Wait.Visible = true;
+                Log(t.App.Name + " 창을 「" + w.Name + "」 탭에서 「" + cur.Name + "」 탭으로 옮김");
+                return;
+            }
+        }
     }
 
     void UpdateTabs()
@@ -4056,7 +4088,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.7";
+    public const string Version = "2.0.8";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
