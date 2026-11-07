@@ -34,6 +34,8 @@ static class W
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string s);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     public delegate void WinEventProc(IntPtr hook, uint ev, IntPtr h, int idObject, int idChild, uint thread, uint time);
     [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc cb, uint pid, uint tid, uint flags);
     [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hook);
@@ -593,6 +595,108 @@ static class AppIcons
             g.DrawImage(img, 0, 0, 20, 20);
         }
         return b;
+    }
+}
+
+// 작업 표시줄의 RamSpirit를 오른쪽 클릭하면 나오는 메뉴(점프 목록)
+static class JumpList
+{
+    [ComImport, Guid("6332debf-87b5-4670-90c0-5e57b408a49e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ICustomDestinationList
+    {
+        void SetAppID([MarshalAs(UnmanagedType.LPWStr)] string id);
+        void BeginList(out uint maxSlots, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object removed);
+        void AppendCategory([MarshalAs(UnmanagedType.LPWStr)] string category, [MarshalAs(UnmanagedType.Interface)] IObjectArray items);
+        void AppendKnownCategory(int category);
+        void AddUserTasks([MarshalAs(UnmanagedType.Interface)] IObjectArray tasks);
+        void CommitList();
+        void GetRemovedDestinations(ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object removed);
+        void DeleteList([MarshalAs(UnmanagedType.LPWStr)] string id);
+        void AbortList();
+    }
+    [ComImport, Guid("92CA9DCD-5622-4bba-A805-5E9F541BD8C9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IObjectArray
+    {
+        void GetCount(out uint n);
+        void GetAt(uint i, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object o);
+    }
+    [ComImport, Guid("5632b1a4-e38a-400a-928a-d4cd63230295"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IObjectCollection
+    {
+        void GetCount(out uint n);
+        void GetAt(uint i, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object o);
+        void AddObject([MarshalAs(UnmanagedType.Interface)] object o);
+        void AddFromArray([MarshalAs(UnmanagedType.Interface)] IObjectArray a);
+        void RemoveObjectAt(uint i);
+        void Clear();
+    }
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellLinkW
+    {
+        void GetPath(IntPtr a, int b, IntPtr c, uint d);
+        void GetIDList(out IntPtr p);
+        void SetIDList(IntPtr p);
+        void GetDescription(IntPtr a, int b);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetWorkingDirectory(IntPtr a, int b);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetArguments(IntPtr a, int b);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetHotkey(out short h);
+        void SetHotkey(short h);
+        void GetShowCmd(out int c);
+        void SetShowCmd(int c);
+        void GetIconLocation(IntPtr a, int b, out int i);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string s, int i);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string s, uint r);
+        void Resolve(IntPtr h, uint f);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string s);
+    }
+    [StructLayout(LayoutKind.Sequential)] struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+    [StructLayout(LayoutKind.Explicit)] struct PROPVARIANT { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore
+    {
+        void GetCount(out uint n);
+        void GetAt(uint i, out PROPERTYKEY k);
+        void GetValue(ref PROPERTYKEY k, out PROPVARIANT v);
+        void SetValue(ref PROPERTYKEY k, ref PROPVARIANT v);
+        void Commit();
+    }
+
+    static object Create(string clsid) { return Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid(clsid))); }
+
+    static object Task(string exe, string title, string args, int icon)
+    {
+        var link = (IShellLinkW)Create("00021401-0000-0000-C000-000000000046");
+        link.SetPath(exe);
+        link.SetArguments(args);
+        link.SetIconLocation(exe, 0);
+        link.SetDescription(title);
+        var store = (IPropertyStore)link;
+        var key = new PROPERTYKEY { fmtid = new Guid("F29F85E0-4FF9-1068-AB91-08002B27B3D9"), pid = 2 };   // 제목
+        var v = new PROPVARIANT { vt = 31, p = Marshal.StringToCoTaskMemUni(title) };
+        store.SetValue(ref key, ref v);
+        store.Commit();
+        Marshal.FreeCoTaskMem(v.p);
+        return link;
+    }
+
+    public static void Make()
+    {
+        string exe = Application.ExecutablePath;
+        if (File.Exists(Updater.InstalledExe)) exe = Updater.InstalledExe;
+        var list = (ICustomDestinationList)Create("77f10cf0-3db5-4966-b520-b7c54fd35ed6");
+        uint slots; object removed;
+        Guid iid = typeof(IObjectArray).GUID;
+        list.BeginList(out slots, ref iid, out removed);
+        var tasks = (IObjectCollection)Create("2d3468c1-36a7-43b6-ac24-d3f02fd9607a");
+        tasks.AddObject(Task(exe, "업데이트 확인", "--cmd update", 0));
+        tasks.AddObject(Task(exe, "칸 나누기 화면으로", "--cmd home", 0));
+        tasks.AddObject(Task(exe, "모두 새 대화", "--cmd newchat", 0));
+        tasks.AddObject(Task(exe, "설정", "--cmd settings", 0));
+        list.AddUserTasks((IObjectArray)tasks);
+        list.CommitList();
     }
 }
 
@@ -2190,7 +2294,7 @@ class MainForm : Form
             if (i % cols == k) minL = Math.Max(minL, T[i].MinW + 12);
             if (i % cols == k + 1) minR = Math.Max(minR, T[i].MinW + 12);
         }
-        if (minL + minR > right - left) return (left + right) / 2;
+        if (minL + minR > right - left) { minL = 220; minR = 220; }
         return Math.Max(left + minL, Math.Min(right - minR, x));
     }
 
@@ -2207,7 +2311,7 @@ class MainForm : Form
             if (i / cols == k) minT = Math.Max(minT, T[i].MinH + 52);
             if (i / cols == k + 1) minB = Math.Max(minB, T[i].MinH + 52);
         }
-        if (minT + minB > bottom - top) return (top + bottom) / 2;
+        if (minT + minB > bottom - top) { minT = 160; minB = 160; }
         return Math.Max(top + minT, Math.Min(bottom - minB, y));
     }
 
@@ -2384,6 +2488,22 @@ class MainForm : Form
     }
 
     Timer guardTimer;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (Program.CmdMsg != 0 && (uint)m.Msg == Program.CmdMsg) { RunCmd(m.WParam.ToInt32()); return; }
+        base.WndProc(ref m);
+    }
+
+    // 작업 표시줄 메뉴 명령: 1 업데이트 확인 · 2 칸 나누기 화면 · 3 모두 새 대화 · 4 설정
+    void RunCmd(int c)
+    {
+        BringUp();
+        if (c == 1) { if (Updater.Ready != null) updBtn.PerformClick(); else CheckUpdate(true, 0); }
+        else if (c == 2) { if (solo >= 0 && solo < T.Count) ToggleSolo(T[solo]); }
+        else if (c == 3) { foreach (Target x in T.ToArray()) if (x.Cell.Visible) NewChat(x); }
+        else if (c == 4) OpenSettings();
+    }
 
     // 지금 맨 앞 창이 RamSpirit나 칸 안의 앱인지
     bool OursInFront()
@@ -3196,6 +3316,8 @@ class MainForm : Form
         foreach (Target x in AllTargets()) AppIcons.Get(x.App);
         UpdateTabs();
         SetOnTop(onTop);
+        try { JumpList.Make(); } catch { }
+        if (Program.StartCmd == 1) CheckUpdate(true, 1500);
         CheckUpdateLater();
     }
 
@@ -3314,9 +3436,7 @@ class MainForm : Form
             if (over && t.Cell.Visible && solo < 0)
             {
                 // 앱이 칸보다 크면 칸을 넓힘 (웹 창으로 바꾸지 않음)
-                if (sz[0] > r.Width + 10) t.MinW = Math.Max(t.MinW, sz[0]);
-                if (sz[1] > r.Height + 10) t.MinH = Math.Max(t.MinH, sz[1]);
-                AutoGrow(t, sz[0], sz[1]);
+                t.Misfit = 0;   // 넓힐지는 1초마다 다시 재 보고 정함 (KeepInCell)
             }
         }
 
@@ -3363,7 +3483,7 @@ class MainForm : Form
                 t.OldStyle = origStyles[kv.Key];
                 t.Lost = false; t.Missing = 0; t.Misfit = 0;
                 t.Hwnd = h;
-                t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0;
+                t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0; t.MinW = 0; t.MinH = 0; t.CapBtns = Rectangle.Empty;
                 FindTitleBar(t, h, proc);
                 if (!T.Contains(t)) { W.ShowWindowAsync(h, 0); t.Hidden = true; t.Wait.Visible = false; break; }   // 다른 탭의 칸이면 숨겨 둠
                 t.Pending = true;
@@ -3576,7 +3696,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.5";
+    public const string Version = "1.9.6";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
@@ -3687,6 +3807,12 @@ public static class Program
             try { Process.GetProcessById(oldPid).Kill(); } catch { }
             try { first = mutex.WaitOne(10000); } catch (System.Threading.AbandonedMutexException) { first = true; }
         }
+        // 작업 표시줄 메뉴에서 온 명령 (--cmd update 등)
+        int cmd = 0;
+        for (int i = 0; i + 1 < args.Length; i++)
+            if (args[i] == "--cmd") cmd = Array.IndexOf(new string[] { "", "update", "home", "newchat", "settings" }, args[i + 1]);
+        if (cmd < 0) cmd = 0;
+        StartCmd = cmd;
         if (!first && !restart)
         {
             Process me = Process.GetCurrentProcess();
@@ -3696,7 +3822,13 @@ public static class Program
                 if (p.Id == me.Id) continue;
                 IntPtr hw = IntPtr.Zero;
                 try { hw = p.MainWindowHandle; } catch { }
-                if (hw != IntPtr.Zero && W.IsWindowVisible(hw)) { W.ShowWindow(hw, 9); W.SetForegroundWindow(hw); shown = true; }
+                if (hw != IntPtr.Zero && W.IsWindowVisible(hw))
+                {
+                    if (W.IsIconic(hw)) W.ShowWindow(hw, 9);
+                    W.SetForegroundWindow(hw);
+                    if (cmd > 0) W.PostMessage(hw, CmdMsg, new IntPtr(cmd), IntPtr.Zero);   // 켜져 있는 RamSpirit가 그 일을 함
+                    shown = true;
+                }
             }
             if (shown) return;                       // 정말 켜져 있으면 그 창을 보여 줌
             foreach (Process p in Process.GetProcessesByName(me.ProcessName))
@@ -3739,6 +3871,8 @@ public static class Program
     }
 
     static System.Threading.Mutex Lock;
+    public static int StartCmd;
+    public static readonly uint CmdMsg = W.RegisterWindowMessage("RamSpirit_Command");
 
     // 「다시 시작」 때 새 RamSpirit가 바로 켜질 수 있게 잠금을 먼저 풂
     public static void ReleaseLock()
