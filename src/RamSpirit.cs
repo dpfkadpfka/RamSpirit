@@ -385,6 +385,23 @@ static class Th
 }
 
 // 아이콘(+글자) 버튼 — 윈도우 기본 아이콘 글꼴(Segoe Fluent Icons / Segoe MDL2 Assets)로 그림
+// 버튼 여러 개를 하나로 묶는 둥근 바탕 (탭 묶음 · 위쪽 도구 묶음)
+class SegBox : Panel
+{
+    public SegBox()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var br = new SolidBrush(Th.ChipBg))
+        using (GraphicsPath p = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), 9))
+            g.FillPath(br, p);
+    }
+}
+
 class IconBtn : Control
 {
     public string Glyph = "";
@@ -392,6 +409,7 @@ class IconBtn : Control
     public bool Ghost;       // 평소엔 바탕 없음, 마우스 올리면 연한 바탕
     public bool Active;      // 켜짐 상태(연보라 바탕 + 보라 아이콘)
     public bool Strike;      // 꺼짐 표시(아이콘에 사선)
+    public bool Seg;         // 묶음(SegBox) 안의 버튼: 평소 바탕 없음, 켜지면 흰 바탕 + 테두리
     public int Radius = 9;
     bool hover, down;
     static Font iconFont;
@@ -444,17 +462,21 @@ class IconBtn : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         Color bg, fg;
-        if (Primary) { bg = hover ? Th.AccentDark : Th.Accent; fg = Color.White; }
+        if (Seg) { bg = Active ? Color.White : (down || hover) ? Th.ChipHover : Color.Empty; fg = (Active || hover) ? Th.Text : Th.Sub; }
+        else if (Primary) { bg = hover ? Th.AccentDark : Th.Accent; fg = Color.White; }
         else if (Active) { bg = hover ? Th.ActiveHover : Th.AccentSoft; fg = Th.Accent; }
         else if (Ghost) { bg = down ? Th.ChipHover : hover ? Th.ChipBg : Color.Empty; fg = hover ? Th.Text : Th.ChipText; }
         else { bg = hover ? Th.ChipHover : Th.ChipBg; fg = Th.ChipText; }
         if (Strike && !Active) fg = Th.Sub;
         if (!Enabled) { fg = Color.FromArgb(150, fg); }
-        if (down && !Ghost) bg = ControlPaint.Dark(bg, 0.02f);
+        if (down && !Ghost && !Seg) bg = ControlPaint.Dark(bg, 0.02f);
         if (bg != Color.Empty)
             using (var br = new SolidBrush(bg))
             using (GraphicsPath path = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Min(Radius, Height / 2)))
+            {
                 g.FillPath(br, path);
+                if (Seg && Active) using (var pen = new Pen(Th.Border)) g.DrawPath(pen, path);
+            }
         bool hasText = !string.IsNullOrEmpty(Text);
         SizeF gs = g.MeasureString(Glyph, iconFont);
         float gx = hasText ? 14 : (Width - gs.Width) / 2f + 1;
@@ -1399,28 +1421,33 @@ class MainForm : Form
         brand.Click += home; logo.Click += home;
         Tip(brand, "처음 화면(칸 나누기)으로 돌아가기");
         bar.Controls.Add(brand);
+        toolSeg = new SegBox();
+        toolSeg.BackColor = Th.Glass;
+        bar.Controls.Add(toolSeg);
         var allNew = new IconBtn();
-        allNew.Ghost = true; allNew.Glyph = "\uE70F"; allNew.Text = "모두 새 대화";
+        allNew.Seg = true; allNew.Glyph = "\uE70F"; allNew.Text = "모두 새 대화";
         allNew.Click += delegate { foreach (Target x in T.ToArray()) if (x.Cell.Visible) NewChat(x); };
         Tip(allNew, "보이는 칸을 모두 새 대화로 바꿔요");
-        bar.Controls.Add(allNew);
+        toolSeg.Controls.Add(allNew);
         var resetBtn = new IconBtn();
-        resetBtn.Ghost = true; resetBtn.Glyph = "\uE8A9"; resetBtn.Text = "칸 크기 같게";
+        resetBtn.Seg = true; resetBtn.Glyph = "\uE8A9"; resetBtn.Text = "칸 크기 같게";
         resetBtn.Click += delegate { foreach (Target x in T) { x.MinW = 0; x.MinH = 0; x.Misfit = 0; } ResetRatio(); };
         Tip(resetBtn, "끌어서 바꾼 칸 크기를 모두 똑같이 되돌려요");
-        bar.Controls.Add(resetBtn);
+        toolSeg.Controls.Add(resetBtn);
         compToggle = new IconBtn();
-        compToggle.Glyph = "\uE724"; compToggle.Text = "한 번에 보내기";
+        compToggle.Seg = true; compToggle.Glyph = "\uE724"; compToggle.Text = "한 번에 보내기";
         compToggle.Click += delegate { SetComposer(!compOpen); SaveConfig(); };
-        bar.Controls.Add(compToggle);
+        toolSeg.Controls.Add(compToggle);
+        foreach (IconBtn b in new IconBtn[] { allNew, resetBtn, compToggle }) { b.Font = new Font("Malgun Gothic", 9f); b.Radius = 7; }
         sendHint = new Label();
         sendHint.Font = btnFont; sendHint.ForeColor = Th.Sub; sendHint.BackColor = Th.Glass;
         sendHint.TextAlign = ContentAlignment.MiddleLeft; sendHint.AutoEllipsis = true;
+        sendHint.TextChanged += delegate { HintChanged(); };
         bar.Controls.Add(sendHint);
         var setBtn = new IconBtn();
-        setBtn.Ghost = true; setBtn.Glyph = "\uE713"; setBtn.Text = "설정";
+        setBtn.Ghost = true; setBtn.Glyph = "\uE713"; setBtn.Radius = 8;
         setBtn.Click += delegate { OpenSettings(); };
-        Tip(setBtn, "칸 수와 칸마다 열 앱 고르기");
+        Tip(setBtn, "설정 · 칸 수와 칸마다 열 앱 고르기");
         bar.Controls.Add(setBtn);
         updBtn = new IconBtn();
         updBtn.Primary = true; updBtn.Glyph = "\uE896"; updBtn.Visible = false;
@@ -1449,6 +1476,9 @@ class MainForm : Form
         pinBtn.Ghost = true; pinBtn.Glyph = "\uE718"; pinBtn.Radius = 8;
         pinBtn.Click += delegate { SetOnTop(!onTop); SaveConfig(); };
         bar.Controls.Add(pinBtn);
+        tabSeg = new SegBox();
+        tabSeg.BackColor = Th.Glass;
+        bar.Controls.Add(tabSeg);
         tabAdd = new IconBtn();
         tabAdd.Ghost = true; tabAdd.Glyph = "\uE710"; tabAdd.Radius = 8;
         tabAdd.Click += delegate { AddSpace(); };
@@ -2056,6 +2086,9 @@ class MainForm : Form
     // ---------- 탭 ----------
     readonly List<IconBtn> tabBtns = new List<IconBtn>();
     IconBtn tabAdd;
+    SegBox tabSeg, toolSeg;
+    // 탭 끌어서 순서 바꾸기
+    int tabDownX = -1; bool tabDragging;
 
     void SwitchTo(Workspace w)
     {
@@ -2142,23 +2175,51 @@ class MainForm : Form
 
     void UpdateTabs()
     {
-        if (bar == null) return;
-        foreach (IconBtn b in tabBtns) { bar.Controls.Remove(b); b.Dispose(); }
+        if (bar == null || tabSeg == null) return;
+        foreach (IconBtn b in tabBtns) { tabSeg.Controls.Remove(b); b.Dispose(); }
         tabBtns.Clear();
         foreach (Workspace w in spaces)
         {
             Workspace me = w;
             var b = new IconBtn();
-            b.Text = w.Name; b.Ghost = w != cur; b.Active = w == cur; b.Radius = 8;
-            b.Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold);
+            b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7;
+            b.Font = new Font("Malgun Gothic", 9.5f, w == cur ? FontStyle.Bold : FontStyle.Regular);
+            b.MouseDown += delegate (object o, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left) { tabDownX = Cursor.Position.X; tabDragging = false; }
+            };
+            b.MouseMove += delegate (object o, MouseEventArgs e)
+            {
+                if (tabDownX < 0 || (e.Button & MouseButtons.Left) == 0) return;
+                if (!tabDragging && Math.Abs(Cursor.Position.X - tabDownX) < 6) return;
+                tabDragging = true;
+                b.Cursor = Cursors.SizeWE;
+                // 마우스가 있는 자리의 탭과 자리 바꾸기
+                int mx = tabSeg.PointToClient(Cursor.Position).X;
+                int from = tabBtns.IndexOf(b), to = from;
+                for (int i = 0; i < tabBtns.Count; i++)
+                {
+                    Rectangle r = tabBtns[i].Bounds;
+                    if (i != from && mx >= r.Left + r.Width / 3 && mx <= r.Right - r.Width / 3) to = i;
+                }
+                if (to != from && from >= 0)
+                {
+                    Workspace ws = spaces[from]; spaces.RemoveAt(from); spaces.Insert(to, ws);
+                    tabBtns.RemoveAt(from); tabBtns.Insert(to, b);
+                    LayoutBar();
+                }
+            };
             b.MouseUp += delegate (object o, MouseEventArgs e)
             {
+                bool dragged = tabDragging;
+                tabDownX = -1; tabDragging = false; b.Cursor = Cursors.Hand;
+                if (dragged) { SaveConfig(); return; }
                 if (e.Button == MouseButtons.Right) { TabMenu(me, b); return; }
                 if (e.Button == MouseButtons.Left) BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { SwitchTo(me); });
             };
-            Tip(b, w == cur ? "지금 보고 있는 탭 · 오른쪽 클릭: 이름 바꾸기·지우기" : "「" + w.Name + "」 탭으로 바꾸기 · 오른쪽 클릭: 이름 바꾸기·지우기");
+            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 오른쪽 클릭: 이름 바꾸기·지우기");
             tabBtns.Add(b);
-            bar.Controls.Add(b);
+            tabSeg.Controls.Add(b);
         }
         LayoutBar();
     }
@@ -2976,6 +3037,21 @@ class MainForm : Form
     readonly List<string> attach = new List<string>();   // 함께 보낼 파일
     IconBtn fileBtn;
 
+    bool hintBusy;
+    Timer hintTimer;
+    // 알림 글자는 잠깐만 보이고 사라짐
+    void HintChanged()
+    {
+        if (sendHint.Text.Length == 0 || attach.Count > 0 && sendHint.Text.StartsWith("첨부")) return;
+        if (hintTimer == null)
+        {
+            hintTimer = new Timer(); hintTimer.Interval = 7000;
+            hintTimer.Tick += delegate { hintTimer.Stop(); if (busy) { hintTimer.Start(); return; } hintBusy = false; UpdateHint(); };
+        }
+        hintBusy = true;
+        hintTimer.Stop(); hintTimer.Start();
+    }
+
     void UpdateHint()
     {
         if (sendHint == null) return;
@@ -2988,7 +3064,7 @@ class MainForm : Form
             for (int i = 0; i < attach.Count && i < 3; i++) names.Add(Path.GetFileName(attach[i]));
             files = "첨부 " + attach.Count + "개(" + string.Join(", ", names.ToArray()) + (attach.Count > 3 ? " 외" : "") + ") · ";
         }
-        sendHint.Text = files + (ctrlEnterSend ? "Ctrl+Enter 보내기 · Enter 줄바꿈" : "Enter 보내기 · Shift+Enter 줄바꿈") + " · 보이는 칸 중 " + n + "개에 보내요";
+        if (!hintBusy) sendHint.Text = files.Length > 0 ? files.TrimEnd(' ', '·') : "";
         if (fileBtn != null) { fileBtn.Text = attach.Count > 0 ? "파일 " + attach.Count + "개" : "파일"; fileBtn.Active = attach.Count > 0; }
     }
 
@@ -3151,30 +3227,31 @@ class MainForm : Form
     void LayoutBar()
     {
         if (barBtns == null) return;
-        int h = 28, y = (bar.Height - h) / 2, x = 128;
-        // 왼쪽: 모두 새 대화 · 칸 크기 같게 · 한 번에 보내기(입력창 열기/접기)
-        for (int i = 0; i < 3; i++) { int w = barBtns[i].Need() - 6; barBtns[i].SetBounds(x, y, w, h); x += w + 4; }
-        // 오른쪽: [업데이트] 버전 [설정]
+        int h = 28, y = (bar.Height - h) / 2, x = 132;
+        // 왼쪽 묶음: 모두 새 대화 · 칸 크기 같게 · 한 번에 보내기
+        int ix = 3;
+        for (int i = 0; i < 3; i++) { int w = barBtns[i].Need() - 8; barBtns[i].SetBounds(ix, 3, w, h - 6); ix += w + 2; }
+        toolSeg.SetBounds(x, y, ix + 1, h);
+        x += ix + 1;
+        // 오른쪽: [업데이트] [핀] 버전 [톱니]
         int r = bar.ClientSize.Width - 10;
-        int sw = barBtns[3].Need() - 6;
-        barBtns[3].SetBounds(r - sw, y, sw, h); r -= sw + 6;
-        verLbl.SetBounds(r - 52, y, 52, h); r -= 52 + 8;
-        if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 8; }
+        barBtns[3].SetBounds(r - h, y, h, h); r -= h + 4;
+        verLbl.Visible = false;   // 버전은 설정 → 정보에서
+        if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
         if (updBtn.Visible) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
-        // 탭: [AI] [이미지] [+]
-        if (tabAdd != null)
+        // 탭 묶음 [AI][이미지] + [+]
+        if (tabAdd != null && tabSeg != null)
         {
             r -= 6;
             tabAdd.SetBounds(r - h, y, h, h); r -= h + 4;
-            for (int i = tabBtns.Count - 1; i >= 0; i--)
-            {
-                int tw = Math.Max(44, tabBtns[i].Need() - 6);
-                tabBtns[i].SetBounds(r - tw, y, tw, h); r -= tw + 4;
-            }
-            r -= 8;
+            int tx = 3;
+            foreach (IconBtn b in tabBtns) { int tw = Math.Max(48, b.Need() - 4); b.SetBounds(tx, 3, tw, h - 6); tx += tw + 2; }
+            int segW = tx + 1;
+            tabSeg.SetBounds(r - segW, y, segW, h); r -= segW + 8;
+            tabSeg.Visible = tabBtns.Count > 0;
         }
-        // 가운데: 상태 안내 글자
-        if (sendHint != null) sendHint.SetBounds(x + 12, y, Math.Max(10, r - x - 12), h);
+        // 가운데: 잠깐 보이는 알림 글자 (평소엔 비어 있음)
+        if (sendHint != null) sendHint.SetBounds(x + 14, y, Math.Max(10, r - x - 14), h);
     }
 
     void CheckUpdateLater() { CheckUpdate(false, 4000); }
@@ -4126,7 +4203,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.9";
+    public const string Version = "2.1.0";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
