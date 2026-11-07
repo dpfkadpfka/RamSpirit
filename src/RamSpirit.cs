@@ -39,6 +39,7 @@ static class W
     public static void CloseApp(IntPtr h, int oldStyle)
     {
         if (!IsWindow(h)) return;
+        Unclip(h);
         SetOwner(h, IntPtr.Zero);
         SetWindowLong(h, GWL_STYLE, oldStyle);
         SetWindowPos(h, IntPtr.Zero, 100, 100, 1100, 800, NOZ | NOACT | FRAME);
@@ -158,6 +159,22 @@ static class W
         return old;
     }
 
+    [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int l, int t, int r, int b, int w, int h);
+
+    // 창에서 (0, top)부터 w×hh 부분만 보이게 자름 — 위쪽 제목 줄은 감추고 모서리는 칸처럼 둥글게
+    public static void Clip(IntPtr h, int top, int w, int hh, int rad)
+    {
+        IntPtr rg = CreateRoundRectRgn(0, top, w + 1, top + hh + 1, rad, rad);
+        if (SetWindowRgn(h, rg, true) == 0) DeleteObject(rg);
+    }
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
+
+    public static void Unclip(IntPtr h)
+    {
+        if (IsWindow(h)) SetWindowRgn(h, IntPtr.Zero, true);
+    }
+
     public static void Place(IntPtr h, int x, int y, int w, int hh)
     {
         SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | NOACT | 0x4000);   // ASYNC: 상대 앱이 바빠도 안 기다림
@@ -166,6 +183,7 @@ static class W
     public static void Detach(IntPtr h, int oldStyle, int x, int y, int w, int hh)
     {
         if (!IsWindow(h)) return;
+        Unclip(h);
         SetOwner(h, IntPtr.Zero);
         SetWindowLong(h, GWL_STYLE, oldStyle);
         SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | FRAME);
@@ -314,6 +332,11 @@ class Target
     public int Misfit;     // 칸에서 벗어난 횟수
     public bool Grown;     // 최소 크기 때문에 칸을 자동으로 키웠는지
     public DateTime NewChatAt;
+    public int CapH;       // 앱 자체 제목 줄 높이(최소화·닫기 버튼 아래끝까지), 0이면 없음
+    public bool AutoHide;  // 제목 줄에 다른 버튼이 없어서 자동으로 감추는지
+    public int HideTop = -1;   // -1 자동, 0 보이기, 1 감추기 (칸 메뉴에서 고름)
+    public string Rgn = "";    // 마지막으로 자른 모양
+    public int Top { get { return CapH <= 0 ? 0 : (HideTop == 1 || (HideTop < 0 && AutoHide)) ? CapH : 0; } }
 
     public Target(AppInfo a) { App = a; }
 
@@ -921,6 +944,14 @@ class MainForm : Form
             if (a != null) ChangeApp(t, a);
         };
         menu.Items.Add(custom);
+        if (t.CapH > 0)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var bar = new ToolStripMenuItem("앱 위쪽 제목 줄 감추기");
+            bar.Checked = t.Top > 0;
+            bar.Click += delegate { t.HideTop = t.Top > 0 ? 0 : 1; t.Rgn = ""; SyncWindows(); };
+            menu.Items.Add(bar);
+        }
         menu.Show(t.Change, new Point(0, t.Change.Height));
     }
 
@@ -1110,7 +1141,9 @@ class MainForm : Form
             if (t.Cell.Visible)
             {
                 Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
-                W.Place(t.Hwnd, r.X, r.Y, r.Width, r.Height);
+                int top = t.Top;
+                W.Place(t.Hwnd, r.X, r.Y - top, r.Width, r.Height + top);
+                ClipTo(t, top, r.Width, r.Height);
                 if (t.Hidden) { W.ShowWindowAsync(t.Hwnd, 8); t.Hidden = false; }
             }
             else if (!t.Hidden)
@@ -1119,6 +1152,36 @@ class MainForm : Form
                 t.Hidden = true;
             }
         }
+    }
+
+    // 칸에 보이는 부분만 남기고 잘라 냄(바뀌었을 때만)
+    void ClipTo(Target t, int top, int w, int h)
+    {
+        string key = top + "," + w + "," + h;
+        if (key == t.Rgn || t.Hwnd == IntPtr.Zero) return;
+        t.Rgn = key;
+        W.Clip(t.Hwnd, top, w, h, 20);   // 칸 안쪽(반지름 10)과 같은 둥근 모서리
+    }
+
+    // 앱이 스스로 그린 위쪽 제목 줄(아이콘·제목·최소화·닫기)을 찾아서 그 높이만큼 감춤
+    void FindTitleBar(Target t, IntPtr h, string proc)
+    {
+#if !NO_UIA
+        bool browser = proc == "chrome" || proc == "msedge";
+        RunBackground(delegate
+        {
+            for (int i = 0; i < 4 && t.Hwnd == h; i++)
+            {
+                System.Threading.Thread.Sleep(i == 0 ? 900 : 1200);
+                int auto;
+                int cap = Uia.TitleBarHeight(h, browser, out auto);
+                if (cap > 0) { t.CapH = cap; t.AutoHide = auto == 1; break; }
+            }
+        }, delegate
+        {
+            if (t.Hwnd == h && t.CapH > 0) { t.Rgn = ""; SyncWindows(); }
+        });
+#endif
     }
 
     void ToggleSolo(Target t)
@@ -1461,12 +1524,15 @@ class MainForm : Form
     {
         if (busy) return;
         Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+        int top = t.Top;
+        r = new Rectangle(r.X, r.Y - top, r.Width, r.Height + top);
         W.RECT wr;
         W.GetWindowRect(t.Hwnd, out wr);
         int ww = wr.R - wr.L, wh = wr.B - wr.T;
         bool moved = Math.Abs(wr.L - r.X) > 4 || Math.Abs(wr.T - r.Y) > 4 || Math.Abs(ww - r.Width) > 4 || Math.Abs(wh - r.Height) > 4;
-        if (!moved) { t.Misfit = 0; return; }
+        if (!moved) { t.Misfit = 0; ClipTo(t, top, r.Width, r.Height - top); return; }
         W.Place(t.Hwnd, r.X, r.Y, r.Width, r.Height);
+        ClipTo(t, top, r.Width, r.Height - top);
         bool over = ww > r.Width + 10 || wh > r.Height + 10;
         if (!over) return;
         if (++t.Misfit < 2) return;          // 한 번 더 맞춰 보고도 크면
@@ -1669,6 +1735,8 @@ class MainForm : Form
                 t.OldStyle = origStyles[kv.Key];
                 t.Lost = false; t.Missing = 0; t.Misfit = 0;
                 t.Hwnd = h;
+                t.CapH = 0; t.AutoHide = false; t.Rgn = "";
+                FindTitleBar(t, h, proc);
                 t.Pending = true;
                 t.CheckAt = DateTime.Now.AddMilliseconds(800);
                 if (t.WantNewChat) t.NewChatAt = DateTime.Now.AddMilliseconds(2500);
@@ -1756,6 +1824,56 @@ static class Uia
         catch { return false; }
     }
 
+    static readonly string[] CapNames = { "최소화", "Minimize", "최대화", "Maximize", "이전 크기로 복원", "Restore", "닫기", "Close" };
+
+    // 최소화 버튼 아래끝까지의 높이(창 위쪽 기준). 못 찾으면 0.
+    // auto=1: 그 줄에 앱 버튼이 따로 없음(브라우저 앱 창이거나 제목·창 버튼뿐) → 감춰도 됨
+    public static int TitleBarHeight(IntPtr h, bool browser, out int auto)
+    {
+        auto = 0;
+        lock (Gate)
+        {
+            try
+            {
+                W.RECT wr;
+                W.GetWindowRect(h, out wr);
+                AutomationElement root = AutomationElement.FromHandle(h);
+                Condition c = new AndCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                    new OrCondition(new PropertyCondition(AutomationElement.NameProperty, "최소화"),
+                                    new PropertyCondition(AutomationElement.NameProperty, "Minimize")));
+                AutomationElementCollection mins = root.FindAll(TreeScope.Descendants, c);
+                double bottom = -1;
+                foreach (AutomationElement e in mins)
+                {
+                    System.Windows.Rect r = e.Current.BoundingRectangle;
+                    if (r.IsEmpty || r.Top - wr.T > 30) continue;   // 창 맨 위에 있는 것만
+                    if (bottom < 0 || r.Bottom < bottom) bottom = r.Bottom;
+                }
+                if (bottom < 0) return 0;
+                int cap = (int)Math.Round(bottom - wr.T);
+                if (cap < 16 || cap > 90) return 0;
+                if (browser) { auto = 1; return cap; }
+                // 같은 줄에 앱 버튼(메뉴·뒤로 등)이 있으면 자동으로 감추지 않음
+                AutomationElementCollection btns = root.FindAll(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+                int other = 0;
+                foreach (AutomationElement e in btns)
+                {
+                    System.Windows.Rect r = e.Current.BoundingRectangle;
+                    if (r.IsEmpty || r.Width < 4) continue;
+                    double mid = (r.Top + r.Bottom) / 2;
+                    if (mid < wr.T || mid > wr.T + cap) continue;
+                    if (Array.IndexOf(CapNames, e.Current.Name) >= 0) continue;
+                    other++;
+                }
+                auto = other == 0 ? 1 : 0;
+                return cap;
+            }
+            catch { return 0; }
+        }
+    }
+
     // 이름이 맞는 버튼·링크를 찾아 누르기 (이름 조건으로 첫 번째만 찾아서 빠름)
     public static bool ClickByName(IntPtr h, string[] names)
     {
@@ -1793,7 +1911,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.2.0";
+    public const string Version = "1.3.0";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
