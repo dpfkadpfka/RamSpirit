@@ -3117,6 +3117,9 @@ class MainForm : Form
         {
             if (popupClosed)
             {
+#if !NO_UIA
+                RunBackground(delegate { try { Log(t.App.Name + " 폴더 창이 뜸 · 버튼 후보: " + Uia.ButtonNames(h, 40)); } catch { } }, delegate { });
+#endif
                 if (!quiet) sendHint.Text = t.App.Name + ": 새 대화 대신 폴더 고르는 창이 떠서 닫았어요 (작업 모드). 그 앱에서 새 채팅을 직접 눌러 주세요.";
                 return;
             }
@@ -3134,6 +3137,9 @@ class MainForm : Form
                 return;
             }
             if (!quiet) sendHint.Text = t.App.Name + ": 새 대화 버튼을 찾지 못했어요. 앱에서 직접 눌러 주세요.";
+#if !NO_UIA
+            RunBackground(delegate { try { Log(t.App.Name + " 새 대화 버튼 후보: " + Uia.ButtonNames(h, 40)); } catch { } }, delegate { });
+#endif
         });
     }
 
@@ -3144,9 +3150,19 @@ class MainForm : Form
         foreach (Target t in T)
         {
             if (t.Hwnd == IntPtr.Zero || t.Hidden || !t.Cell.Visible) continue;
-            bool alive = W.IsWindow(t.Hwnd) && W.IsWindowVisible(t.Hwnd);
+            bool exists = W.IsWindow(t.Hwnd);
+            bool alive = exists && W.IsWindowVisible(t.Hwnd);
             if (alive) { t.Missing = 0; KeepInCell(t); continue; }
+            if (exists)
+            {
+                // 앱이 창을 스스로 숨김(트레이로 숨기기 등) → 다시 칸에 보이게
+                W.ShowWindowAsync(t.Hwnd, 8);
+                t.Rgn = "";
+                Log(t.App.Name + " 창이 숨겨져서 다시 보이게 함");
+                continue;
+            }
             if (++t.Missing < 2) continue;
+            if (t.Guard != null) t.Guard.Hide();
             used.Remove(t.Hwnd.ToInt64());
             t.Hwnd = IntPtr.Zero;
             t.Pending = false;
@@ -3670,6 +3686,33 @@ static class Uia
         }
     }
 
+    // 문제 확인용: 창 안 버튼·링크 이름들 (앞에서부터 n개)
+    public static string ButtonNames(IntPtr h, int n)
+    {
+        lock (Gate)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                AutomationElement root = AutomationElement.FromHandle(h);
+                AutomationElementCollection all = root.FindAll(TreeScope.Descendants, new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Hyperlink),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)));
+                int k = 0;
+                foreach (AutomationElement e in all)
+                {
+                    string nm = e.Current.Name;
+                    if (string.IsNullOrEmpty(nm) || nm.Length > 30) continue;
+                    sb.Append(nm).Append(" | ");
+                    if (++k >= n) break;
+                }
+            }
+            catch { }
+            return sb.ToString();
+        }
+    }
+
     // 앱 창 맨 위의 최소화·최대화·닫기 버튼을 모두 감싸는 사각형 (창 왼쪽 위 기준). 없으면 Empty
     public static Rectangle CaptionButtons(IntPtr h)
     {
@@ -3740,7 +3783,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.8";
+    public const string Version = "1.9.9";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
