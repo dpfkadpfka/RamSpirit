@@ -772,6 +772,28 @@ static class Ui
     }
 }
 
+// 앱 창의 닫기 버튼 등을 덮는 작은 가림판 (눌러도 아무 일 없음)
+class GuardForm : Form
+{
+    public GuardForm()
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Color.White;
+    }
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= 0x08000000 | 0x00000080;   // NOACTIVATE · TOOLWINDOW
+            return cp;
+        }
+    }
+}
+
 // 칸 사이 선을 끄는 동안 보이는 보라색 안내 선 (앱 창보다 위에)
 class GuideLine : Form
 {
@@ -885,7 +907,10 @@ class Target
     public int HideTop = -1;   // -1 자동, 0 보이기, 1 감추기 (칸 메뉴에서 고름)
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
-    public int Top { get { return CapH <= 0 ? 0 : (HideTop == 1 || (HideTop < 0 && AutoHide)) ? CapH : 0; } }
+    public int Top { get { return 0; } }
+    public Rectangle CapBtns = Rectangle.Empty;   // 앱의 최소화·최대화·닫기 버튼 자리 (창 기준)
+    public Form Guard;                           // 그 버튼들을 덮는 가림판
+    public Color GuardColor = Color.White;
 
     public Target(AppInfo a) { App = a; }
 
@@ -1089,7 +1114,7 @@ class MainForm : Form
             if (watch != null) watch.Stop();
             if (timer != null) timer.Stop();
             if (fixTimer != null) fixTimer.Stop();
-            try { if (hookMove != IntPtr.Zero) W.UnhookWinEvent(hookMove); if (hookLoc != IntPtr.Zero) W.UnhookWinEvent(hookLoc); } catch { }
+            try { if (hookMove != IntPtr.Zero) W.UnhookWinEvent(hookMove); if (hookLoc != IntPtr.Zero) W.UnhookWinEvent(hookLoc); if (hookFg != IntPtr.Zero) W.UnhookWinEvent(hookFg); } catch { }
             keepOnClose = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
             // 응답 없는 앱이 있어도 RamSpirit가 꺼지지 못하고 남지 않도록 따로 처리하고 최대 3초만 기다림
             var th = new System.Threading.Thread(ReleaseAll);
@@ -1412,20 +1437,20 @@ class MainForm : Form
         var usedNames = new List<string>();
         for (int i = 0; i < 8; i++)
         {
-            AppInfo cur = null;
-            if (i < T.Count) cur = T[i].App;
+            AppInfo cand = null;
+            if (i < T.Count) cand = T[i].App;
             else
             {
                 foreach (AppInfo pr in AppInfo.Presets)
                 {
                     bool taken = usedNames.Contains(pr.Name);
                     for (int j = 0; j < T.Count && !taken; j++) if (T[j].App.Name == pr.Name) taken = true;
-                    if (!taken) { cur = pr; break; }
+                    if (!taken) { cand = pr; break; }
                 }
-                if (cur == null) cur = AppInfo.Presets[i % AppInfo.Presets.Length];
+                if (cand == null) cand = AppInfo.Presets[i % AppInfo.Presets.Length];
             }
-            usedNames.Add(cur.Name);
-            slots[i] = cur;
+            usedNames.Add(cand.Name);
+            slots[i] = cand;
         }
         int count = T.Count == 0 ? 4 : Math.Max(2, Math.Min(8, T.Count / 2 * 2));
 
@@ -1554,6 +1579,7 @@ class MainForm : Form
         {
             t.Cell.Visible = false;
             if (t.Hwnd != IntPtr.Zero && !t.Hidden) { W.ShowWindowAsync(t.Hwnd, 0); t.Hidden = true; }
+            if (t.Guard != null) t.Guard.Hide();
         }
         cur = w; T = w.T; colW = w.ColW; rowW = w.RowW; solo = w.Solo;
         if (!w.Started)
@@ -1779,14 +1805,6 @@ class MainForm : Form
             if (a != null) ChangeApp(t, a);
         };
         menu.Items.Add(custom);
-        if (t.CapH > 0)
-        {
-            menu.Items.Add(new ToolStripSeparator());
-            var bar = new ToolStripMenuItem("앱 위쪽 제목 줄 감추기");
-            bar.Checked = t.Top > 0;
-            bar.Click += delegate { t.HideTop = t.Top > 0 ? 0 : 1; t.Rgn = ""; SyncWindows(); };
-            menu.Items.Add(bar);
-        }
         menu.Show(t.Change, new Point(0, t.Change.Height));
     }
 
@@ -2093,12 +2111,14 @@ class MainForm : Form
                 int top = t.Top;
                 W.Place(t.Hwnd, r.X, r.Y - top, r.Width, r.Height + top);
                 ClipTo(t, top, r.Width, r.Height);
+                PlaceGuard(t);
                 if (t.Hidden) { W.ShowWindowAsync(t.Hwnd, 8); t.Hidden = false; }
             }
             else if (!t.Hidden)
             {
                 W.ShowWindowAsync(t.Hwnd, 0);
                 t.Hidden = true;
+                if (t.Guard != null) t.Guard.Hide();
             }
         }
     }
@@ -2116,21 +2136,62 @@ class MainForm : Form
     void FindTitleBar(Target t, IntPtr h, string proc)
     {
 #if !NO_UIA
-        bool browser = proc == "chrome" || proc == "msedge";
+        Rectangle got = Rectangle.Empty;
         RunBackground(delegate
         {
             for (int i = 0; i < 4 && t.Hwnd == h; i++)
             {
-                System.Threading.Thread.Sleep(i == 0 ? 900 : 1200);
-                int auto;
-                int cap = Uia.TitleBarHeight(h, browser, out auto);
-                if (cap > 0) { t.CapH = cap; t.AutoHide = auto == 1; break; }
+                System.Threading.Thread.Sleep(i == 0 ? 1000 : 1200);
+                got = Uia.CaptionButtons(h);
+                if (!got.IsEmpty) break;
             }
         }, delegate
         {
-            if (t.Hwnd == h && t.CapH > 0) { t.Rgn = ""; SyncWindows(); }
+            if (t.Hwnd != h || got.IsEmpty) return;
+            t.CapBtns = got;
+            // 가림판 색: 버튼 바로 왼쪽의 앱 바탕색
+            try
+            {
+                W.RECT wr; W.GetWindowRect(h, out wr);
+                using (var bmp = new Bitmap(1, 1))
+                {
+                    using (Graphics g = Graphics.FromImage(bmp))
+                        g.CopyFromScreen(wr.L + got.X - 6, wr.T + got.Y + Math.Min(6, got.Height / 3), 0, 0, new Size(1, 1));
+                    t.GuardColor = bmp.GetPixel(0, 0);
+                }
+            }
+            catch { }
+            PlaceGuard(t);
         });
 #endif
+    }
+
+    // 앱 창의 닫기·최소화·최대화 버튼 위에 작은 가림판을 덮어 눌리지 않게 (실수로 앱이 꺼지지 않게)
+    void PlaceGuard(Target t)
+    {
+        if (t.CapBtns.IsEmpty || t.Hwnd == IntPtr.Zero) { if (t.Guard != null) t.Guard.Hide(); return; }
+        if (t.Hidden || !t.Cell.Visible) { if (t.Guard != null) t.Guard.Hide(); return; }
+        Rectangle b = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+        var r = new Rectangle(b.X + t.CapBtns.X, b.Y + t.CapBtns.Y, t.CapBtns.Width, t.CapBtns.Height);
+        r.Intersect(b);
+        if (r.Width <= 0 || r.Height <= 0) { if (t.Guard != null) t.Guard.Hide(); return; }
+        if (t.Guard == null || t.Guard.IsDisposed)
+        {
+            var g = new GuardForm();
+            g.Owner = this;
+            t.Guard = g;
+        }
+        t.Guard.BackColor = t.GuardColor;
+        t.Guard.Bounds = r;
+        if (!t.Guard.Visible) t.Guard.Show();
+        W.SetWindowPos(t.Guard.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);   // 맨 위로(활성화 없이)
+    }
+
+    void RaiseGuards()
+    {
+        foreach (Target t in T)
+            if (t.Guard != null && !t.Guard.IsDisposed && t.Guard.Visible)
+                W.SetWindowPos(t.Guard.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     }
 
     void ToggleSolo(Target t)
@@ -2818,7 +2879,7 @@ class MainForm : Form
     // ---------- 앱 켜고 붙이기 ----------
     // 다른 앱 창이 옮겨지기 시작하거나 위치가 바뀌는 순간을 알려 받음
     W.WinEventProc winEvt;
-    IntPtr hookMove, hookLoc;
+    IntPtr hookMove, hookLoc, hookFg;
     readonly List<Target> needFix = new List<Target>();
     Timer fixTimer;
 
@@ -2827,6 +2888,7 @@ class MainForm : Form
         winEvt = OnWinEvent;
         hookMove = W.SetWinEventHook(0x000A, 0x000A, IntPtr.Zero, winEvt, 0, 0, 2);   // 끌어서 옮기기·크기 바꾸기 시작
         hookLoc = W.SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, winEvt, 0, 0, 2);    // 위치·크기 바뀜
+        hookFg = W.SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, winEvt, 0, 0, 0);     // 맨 앞 창 바뀜
         fixTimer = new Timer();
         fixTimer.Interval = 120;
         fixTimer.Tick += delegate
@@ -2842,6 +2904,7 @@ class MainForm : Form
     void OnWinEvent(IntPtr hook, uint ev, IntPtr h, int idObject, int idChild, uint thread, uint time)
     {
         if (idObject != 0 || h == IntPtr.Zero) return;
+        if (ev == 0x0003) { RaiseGuards(); return; }
         Target t = null;
         foreach (Target x in T) if (x.Hwnd == h) { t = x; break; }
         if (t == null) return;
@@ -3190,6 +3253,37 @@ static class Uia
         }
     }
 
+    // 앱 창 맨 위의 최소화·최대화·닫기 버튼을 모두 감싸는 사각형 (창 왼쪽 위 기준). 없으면 Empty
+    public static Rectangle CaptionButtons(IntPtr h)
+    {
+        lock (Gate)
+        {
+            try
+            {
+                W.RECT wr;
+                W.GetWindowRect(h, out wr);
+                AutomationElement root = AutomationElement.FromHandle(h);
+                var conds = new Condition[CapNames.Length];
+                for (int i = 0; i < CapNames.Length; i++) conds[i] = new PropertyCondition(AutomationElement.NameProperty, CapNames[i]);
+                AutomationElementCollection found = root.FindAll(TreeScope.Descendants, new AndCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button), new OrCondition(conds)));
+                Rectangle u = Rectangle.Empty;
+                foreach (AutomationElement e in found)
+                {
+                    System.Windows.Rect r = e.Current.BoundingRectangle;
+                    if (r.IsEmpty || r.Top - wr.T > 60 || r.Width > 80) continue;          // 창 맨 위의 작은 버튼만
+                    if (r.Right < wr.R - 260) continue;                                    // 오른쪽 끝 근처만
+                    var rr = new Rectangle((int)r.X - wr.L, (int)r.Y - wr.T, (int)r.Width, (int)r.Height);
+                    u = u.IsEmpty ? rr : Rectangle.Union(u, rr);
+                }
+                if (u.IsEmpty) return u;
+                u.Inflate(2, 2);
+                return u;
+            }
+            catch { return Rectangle.Empty; }
+        }
+    }
+
     // 이름이 맞는 버튼·링크를 찾아 누르기 (이름 조건으로 첫 번째만 찾아서 빠름)
     public static bool ClickByName(IntPtr h, string[] names)
     {
@@ -3229,7 +3323,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.0";
+    public const string Version = "1.9.1";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
