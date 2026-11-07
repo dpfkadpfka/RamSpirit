@@ -1469,6 +1469,7 @@ class MainForm : Form
         Resize += delegate { SyncWindows(); };
         FormClosing += delegate
         {
+            dragColAt = -1; dragRowAt = -1; if (dragTimer != null) dragTimer.Stop(); HideGuides();
             if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
             if (watch != null) watch.Stop();
             if (timer != null) timer.Stop();
@@ -2571,8 +2572,8 @@ class MainForm : Form
 
     void ShowGuides()
     {
-        if (dragColAt >= 0) { if (guideV == null) guideV = new GuideLine(); }
-        if (dragRowAt >= 0) { if (guideH == null) guideH = new GuideLine(); }
+        if (dragColAt >= 0) { if (guideV == null) { guideV = new GuideLine(); guideV.Owner = this; } }
+        if (dragRowAt >= 0) { if (guideH == null) { guideH = new GuideLine(); guideH.Owner = this; } }
         MoveGuides();
         if (dragColAt >= 0) guideV.Show();
         if (dragRowAt >= 0) guideH.Show();
@@ -4051,7 +4052,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.5";
+    public const string Version = "2.0.6";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
