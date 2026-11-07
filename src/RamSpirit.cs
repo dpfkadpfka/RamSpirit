@@ -419,6 +419,7 @@ class IconBtn : Control
         BackColor = Color.Transparent;
     }
 
+    public void PerformClick() { OnClick(EventArgs.Empty); }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
     protected override void OnMouseDown(MouseEventArgs e) { down = true; Invalidate(); base.OnMouseDown(e); }
@@ -1031,6 +1032,9 @@ class MainForm : Form
         verLbl = new Label();
         verLbl.Text = "v" + Updater.Version; verLbl.Font = btnFont; verLbl.ForeColor = Th.Sub; verLbl.BackColor = Th.Glass;
         verLbl.TextAlign = ContentAlignment.MiddleRight;
+        verLbl.Cursor = Cursors.Hand;
+        verLbl.Click += delegate { CheckUpdate(true, 0); };
+        Tip(verLbl, "누르면 새 버전이 있는지 확인해요");
         bar.Controls.Add(verLbl);
         bar.Paint += delegate (object o, PaintEventArgs e)
         {
@@ -1050,6 +1054,7 @@ class MainForm : Form
         Resize += delegate { SyncWindows(); };
         FormClosing += delegate
         {
+            if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
             if (watch != null) watch.Stop();
             if (timer != null) timer.Stop();
             if (fixTimer != null) fixTimer.Stop();
@@ -2206,21 +2211,91 @@ class MainForm : Form
         if (sendHint != null) sendHint.SetBounds(x + 12, y, Math.Max(10, r - x - 12), h);
     }
 
-    void CheckUpdateLater()
+    void CheckUpdateLater() { CheckUpdate(false, 4000); }
+
+    bool checking;
+
+    // 업데이트 확인 (manual = 직접 눌렀을 때 → 결과를 알려 줌)
+    void CheckUpdate(bool manual, int delay)
     {
+        if (checking) return;
+        if (Updater.Ready != null) { ShowReady(Updater.Ready, manual); return; }
+        checking = true;
+        if (manual) sendHint.Text = "새 버전이 있는지 확인하는 중...";
         string got = null;
         RunBackground(delegate
         {
-            System.Threading.Thread.Sleep(4000);
+            if (delay > 0) System.Threading.Thread.Sleep(delay);
             got = Updater.CheckAndUpdate();
         }, delegate
         {
-            if (got == null) return;
-            updBtn.Text = "새 버전 v" + got + " 준비됨 · 다시 시작";
-            updBtn.Visible = true;
-            Tip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
-            LayoutBar();
+            checking = false;
+            if (got != null) { ShowReady(got, manual); return; }
+            if (manual)
+            {
+                string msg = "지금 쓰는 v" + Updater.Version + "이 최신 버전이에요.";
+                sendHint.Text = msg;
+                if (tray != null) tray.ShowBalloonTip(3000, "RamSpirit", msg, ToolTipIcon.Info);
+            }
         });
+    }
+
+    void ShowReady(string ver, bool manual)
+    {
+        updBtn.Text = "새 버전 v" + ver + " 준비됨 · 다시 시작";
+        updBtn.Visible = true;
+        Tip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
+        LayoutBar();
+        if (trayUpdate != null) { trayUpdate.Text = "새 버전 v" + ver + " 적용하고 다시 시작"; }
+        if (tray != null && manual) tray.ShowBalloonTip(3000, "RamSpirit", "새 버전 v" + ver + "을 받아 두었어요. 위쪽 보라색 버튼이나 이 메뉴로 다시 시작하세요.", ToolTipIcon.Info);
+    }
+
+    // ---------- 작업 표시줄 오른쪽 아래 알림 영역(트레이) 아이콘 ----------
+    NotifyIcon tray;
+    ToolStripMenuItem trayUpdate;
+
+    void MakeTray()
+    {
+        tray = new NotifyIcon();
+        try { tray.Icon = Icon ?? Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+        tray.Text = "RamSpirit v" + Updater.Version;
+        var m = Ui.Menu();
+        var open = new ToolStripMenuItem("RamSpirit 열기");
+        open.Font = new Font(m.Font, FontStyle.Bold);
+        open.Click += delegate { BringUp(); };
+        var home = new ToolStripMenuItem("칸 나누기 화면으로");
+        home.Click += delegate { BringUp(); if (solo >= 0 && solo < T.Count) ToggleSolo(T[solo]); };
+        var allNew = new ToolStripMenuItem("모두 새 대화");
+        allNew.Click += delegate { foreach (Target x in T.ToArray()) if (x.Cell.Visible) NewChat(x); };
+        var set = new ToolStripMenuItem("설정...");
+        set.Click += delegate { BringUp(); OpenSettings(); };
+        trayUpdate = new ToolStripMenuItem("업데이트 확인");
+        trayUpdate.Click += delegate
+        {
+            if (Updater.Ready != null) { updBtn.PerformClick(); return; }
+            CheckUpdate(true, 0);
+        };
+        var ver = new ToolStripMenuItem("지금 버전 v" + Updater.Version);
+        ver.Enabled = false;
+        var quit = new ToolStripMenuItem("끝내기");
+        quit.Click += delegate { Close(); };
+        m.Items.Add(open); m.Items.Add(home); m.Items.Add(allNew); m.Items.Add(set);
+        m.Items.Add(new ToolStripSeparator());
+        m.Items.Add(trayUpdate); m.Items.Add(ver);
+        m.Items.Add(new ToolStripSeparator());
+        m.Items.Add(quit);
+        tray.ContextMenuStrip = m;
+        tray.DoubleClick += delegate { BringUp(); };
+        tray.MouseClick += delegate (object o, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BringUp(); };
+        tray.Visible = true;
+    }
+
+    void BringUp()
+    {
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Maximized;
+        Show();
+        Activate();
+        W.ForceForeground(Handle);
     }
 
     // 무거운 작업(다른 앱 조작·입력란 찾기)은 별도 일꾼 스레드에서 → 화면이 멈추지 않음
@@ -2616,6 +2691,7 @@ class MainForm : Form
         }
         StartSearch(new List<Target>(T));
         MakeShortcut();
+        try { MakeTray(); } catch { }
         CheckUpdateLater();
     }
 
@@ -2964,7 +3040,8 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.8.0";
+    public const string Version = "1.8.1";
+    public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -3042,6 +3119,7 @@ static class Updater
             if (File.Exists(old)) File.Delete(old);
             File.Move(cur, old);      // 실행 중인 파일도 이름은 바꿀 수 있음
             File.Move(tmp, cur);
+            Ready = latest;
             return latest;
         }
         catch { return null; }
