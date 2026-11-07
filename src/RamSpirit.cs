@@ -930,7 +930,6 @@ class MainForm : Form
         };
         bar.Resize += delegate { LayoutBar(); };
         barBtns = new IconBtn[] { allNew, resetBtn, compToggle, setBtn };
-        barBtns = new IconBtn[] { allNew, resetBtn, setBtn };
         Controls.Add(bar);
         BuildComposer();
 
@@ -2780,7 +2779,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.7.1";
+    public const string Version = "1.7.2";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -2914,7 +2913,22 @@ public static class Program
         Updater.CleanupOld();
         try { W.SetProcessDPIAware(); } catch { }
         Application.EnableVisualStyles();
-        var form = new MainForm();
+        MainForm form;
+        try { form = new MainForm(); }
+        catch (Exception ex)
+        {
+            // 켜지다가 오류가 나면 조용히 꺼지지 않고 알려 줌 (오류 내용은 설정 폴더 error.log에 남김)
+            try
+            {
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "error.log"), DateTime.Now + " v" + Updater.Version + "\r\n" + ex + "\r\n\r\n");
+            }
+            catch { }
+            MessageBox.Show("RamSpirit를 켜는 중에 문제가 생겼어요.\n잠시 뒤 다시 켜 보시고, 계속 안 되면 알려 주세요.", "RamSpirit");
+            ReleaseLock();
+            return;
+        }
         // 오류로 갑자기 꺼져도 붙어 있던 앱 창을 원래대로 돌려놓음
         Application.ThreadException += delegate { try { form.SafeRelease(); } catch { } };
         AppDomain.CurrentDomain.UnhandledException += delegate { try { form.SafeRelease(); } catch { } };
