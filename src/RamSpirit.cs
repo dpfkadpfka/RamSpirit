@@ -1365,6 +1365,7 @@ class MainForm : Form
         Text = "RamSpirit";
         BackColor = Th.Bg1;
         WindowState = FormWindowState.Maximized;
+        MinimumSize = new Size(720, 480);
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
         area = new Panel();
@@ -2687,10 +2688,17 @@ class MainForm : Form
     {
         if (t.CapBtns.IsEmpty || t.Hwnd == IntPtr.Zero) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (t.Hidden || !t.Cell.Visible) { if (t.Guard != null) t.Guard.Hide(); return; }
+        if (WindowState == FormWindowState.Minimized || !Visible || !W.IsWindowVisible(t.Hwnd) || W.IsIconic(t.Hwnd))
+        { if (t.Guard != null) t.Guard.Hide(); return; }
         Rectangle b = t.Body.RectangleToScreen(t.Body.ClientRectangle);
-        var r = new Rectangle(b.Right - t.CapBtns.X, b.Y + t.CapBtns.Y, t.CapBtns.Width, t.CapBtns.Height);
+        // 실제 앱 창이 있는 자리 기준으로 (앱이 아직 다른 곳에 있으면 가림판도 띄우지 않음)
+        W.RECT aw; W.GetWindowRect(t.Hwnd, out aw);
+        var app = Rectangle.FromLTRB(aw.L, aw.T, aw.R, aw.B);
+        var r = new Rectangle(app.Right - t.CapBtns.X, app.Y + t.CapBtns.Y, t.CapBtns.Width, t.CapBtns.Height);
         r.Intersect(b);
-        if (r.Width <= 0 || r.Height <= 0) { if (t.Guard != null) t.Guard.Hide(); return; }
+        r.Intersect(app);
+        r.Intersect(RectangleToScreen(ClientRectangle));   // RamSpirit 창 바깥으로는 절대 안 나감
+        if (r.Width <= 0 || r.Height <= 0 || r.Width > 400 || r.Height > 80) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (t.Guard == null || t.Guard.IsDisposed)
         {
             var g = new GuardForm();
@@ -3995,7 +4003,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.1";
+    public const string Version = "2.0.2";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
