@@ -170,6 +170,14 @@ static class W
     }
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
 
+    [DllImport("user32.dll")] static extern int GetWindowRgnBox(IntPtr h, out RECT r);
+    // 창에 잘라 둔 모양이 남아 있는지 (앱이 스스로 풀어 버리는 경우가 있음)
+    public static bool HasRgn(IntPtr h)
+    {
+        RECT r;
+        return GetWindowRgnBox(h, out r) > 1;   // 0 오류, 1 빈 모양, 2·3 있음
+    }
+
     public static void Unclip(IntPtr h)
     {
         if (IsWindow(h)) SetWindowRgn(h, IntPtr.Zero, true);
@@ -315,12 +323,101 @@ static class Th
     }
 }
 
+// 아이콘(+글자) 버튼 — 윈도우 기본 아이콘 글꼴(Segoe Fluent Icons / Segoe MDL2 Assets)로 그림
+class IconBtn : Control
+{
+    public string Glyph = "";
+    public bool Primary;     // 보라 바탕 (주요 버튼)
+    public bool Ghost;       // 평소엔 바탕 없음, 마우스 올리면 연한 바탕
+    public bool Active;      // 켜짐 상태(연보라 바탕 + 보라 아이콘)
+    public bool Strike;      // 꺼짐 표시(아이콘에 사선)
+    public int Radius = 9;
+    bool hover, down;
+    static Font iconFont;
+
+    public static Font IconFont(float size)
+    {
+        foreach (string n in new string[] { "Segoe Fluent Icons", "Segoe MDL2 Assets" })
+        {
+            try
+            {
+                var f = new Font(n, size);
+                if (f.Name == n) return f;
+                f.Dispose();
+            }
+            catch { }
+        }
+        return new Font("Segoe UI Symbol", size);
+    }
+
+    public IconBtn()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                 ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        SetStyle(ControlStyles.Selectable, false);
+        Cursor = Cursors.Hand;
+        Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold);
+        if (iconFont == null) iconFont = IconFont(10.5f);
+        BackColor = Color.Transparent;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { down = true; Invalidate(); base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
+    protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+    protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+
+    // 글자까지 들어가는 데 필요한 너비
+    public int Need()
+    {
+        if (string.IsNullOrEmpty(Text)) return Height;
+        using (Graphics g = CreateGraphics())
+            return (int)(14 + 18 + 7 + g.MeasureString(Text, Font).Width + 12);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        Color bg, fg;
+        if (Primary) { bg = hover ? ColorTranslator.FromHtml("#5b49ea") : Th.Accent; fg = Color.White; }
+        else if (Active) { bg = hover ? ColorTranslator.FromHtml("#ddd6ff") : Th.AccentSoft; fg = Th.Accent; }
+        else if (Ghost) { bg = down ? Th.ChipHover : hover ? Th.ChipBg : Color.Empty; fg = hover ? Th.Text : Th.ChipText; }
+        else { bg = hover ? Th.ChipHover : Th.ChipBg; fg = Th.ChipText; }
+        if (Strike && !Active) fg = Th.Sub;
+        if (!Enabled) { fg = Color.FromArgb(150, fg); }
+        if (down && !Ghost) bg = ControlPaint.Dark(bg, 0.02f);
+        if (bg != Color.Empty)
+            using (var br = new SolidBrush(bg))
+            using (GraphicsPath path = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Min(Radius, Height / 2)))
+                g.FillPath(br, path);
+        bool hasText = !string.IsNullOrEmpty(Text);
+        SizeF gs = g.MeasureString(Glyph, iconFont);
+        float gx = hasText ? 14 : (Width - gs.Width) / 2f + 1;
+        float gy = (Height - gs.Height) / 2f + 1;
+        using (var br = new SolidBrush(fg))
+        {
+            if (Glyph.Length > 0) g.DrawString(Glyph, iconFont, br, gx, gy);
+            if (hasText)
+            {
+                SizeF ts = g.MeasureString(Text, Font);
+                g.DrawString(Text, Font, br, 14 + 18 + 7, (Height - ts.Height) / 2f + 1);
+            }
+        }
+        if (Strike && !Active)
+            using (var pen = new Pen(fg, 1.6f))
+                g.DrawLine(pen, gx + 1, gy + gs.Height - 4, gx + gs.Width - 3, gy + 3);
+    }
+}
+
 class Target
 {
     public AppInfo App;
     public Panel Cell, Head, Body, Dot;
     public Label Lbl, Wait;
-    public Button Btn, Change, SendTg;
+    public IconBtn Btn, Change, SendTg, Fresh;
     public bool SendOn;
     public IntPtr Hwnd = IntPtr.Zero;
     public int OldStyle;
@@ -336,6 +433,7 @@ class Target
     public bool AutoHide;  // 제목 줄에 다른 버튼이 없어서 자동으로 감추는지
     public int HideTop = -1;   // -1 자동, 0 보이기, 1 감추기 (칸 메뉴에서 고름)
     public string Rgn = "";    // 마지막으로 자른 모양
+    public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return CapH <= 0 ? 0 : (HideTop == 1 || (HideTop < 0 && AutoHide)) ? CapH : 0; } }
 
     public Target(AppInfo a) { App = a; }
@@ -428,43 +526,52 @@ class MainForm : Form
         area.Resize += delegate { area.Invalidate(); };
         Controls.Add(area);
 
-        // 위쪽 막대: 설정 / 비율 초기화
+        // 위쪽 막대: 왼쪽 앱 이름 · 모두 새 대화 · 칸 크기 같게 / 오른쪽 업데이트 · 버전 · 설정
         bar = new Panel();
-        bar.Dock = DockStyle.Top; bar.Height = 46; bar.BackColor = Th.Glass;
-        var setBtn = new Button();
-        setBtn.Text = "설정"; setBtn.Font = btnFont;
-        setBtn.SetBounds(12, 8, 76, 30); Th.Chip(setBtn, true);
-        setBtn.Click += delegate { OpenSettings(); };
-        bar.Controls.Add(setBtn);
-        var resetBtn = new Button();
-        resetBtn.Text = "비율 초기화"; resetBtn.Font = btnFont;
-        resetBtn.SetBounds(96, 8, 96, 30); Th.Chip(resetBtn, false);
-        resetBtn.Click += delegate { ResetRatio(); };
-        bar.Controls.Add(resetBtn);
-        var allNew = new Button();
-        allNew.Text = "모두 새 대화"; allNew.Font = btnFont;
-        allNew.SetBounds(200, 8, 100, 30); Th.Chip(allNew, false);
+        bar.Dock = DockStyle.Top; bar.Height = 52; bar.BackColor = Th.Glass;
+        var logo = new PictureBox();
+        logo.SizeMode = PictureBoxSizeMode.Zoom; logo.BackColor = Th.Glass;
+        try { logo.Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath).ToBitmap(); } catch { }
+        logo.SetBounds(16, 15, 22, 22);
+        bar.Controls.Add(logo);
+        var brand = new Label();
+        brand.Text = "RamSpirit"; brand.Font = new Font("Segoe UI", 12f, FontStyle.Bold); brand.ForeColor = Th.Text;
+        brand.AutoSize = true; brand.BackColor = Th.Glass; brand.Location = new Point(44, 14);
+        bar.Controls.Add(brand);
+        var allNew = new IconBtn();
+        allNew.Glyph = "\uE70F"; allNew.Text = "모두 새 대화";
         allNew.Click += delegate { foreach (Target x in T.ToArray()) if (x.Cell.Visible) NewChat(x); };
+        tip.SetToolTip(allNew, "보이는 칸을 모두 새 대화로 바꿔요");
         bar.Controls.Add(allNew);
-        var hint = new Label();
-        hint.Text = "제목 줄을 끌어서 자리 바꾸기  ·  ＋/－ 로 칸 크기 조절  ·  「바꾸기」로 앱 고르기";
-        hint.Font = btnFont; hint.ForeColor = Th.Sub; hint.TextAlign = ContentAlignment.MiddleLeft;
-        hint.SetBounds(316, 0, 700, 46);
-        bar.Controls.Add(hint);
-        updBtn = new Button();
-        updBtn.Font = btnFont; updBtn.Visible = false; updBtn.Dock = DockStyle.Right; updBtn.Width = 240;
-        Th.Chip(updBtn, true);
-        updBtn.FlatAppearance.BorderSize = 7; updBtn.FlatAppearance.BorderColor = Th.Glass;
+        var resetBtn = new IconBtn();
+        resetBtn.Glyph = "\uE8A9"; resetBtn.Text = "칸 크기 같게";
+        resetBtn.Click += delegate { ResetRatio(); };
+        tip.SetToolTip(resetBtn, "끌어서 바꾼 칸 크기를 모두 똑같이 되돌려요");
+        bar.Controls.Add(resetBtn);
+        var setBtn = new IconBtn();
+        setBtn.Glyph = "\uE713"; setBtn.Text = "설정";
+        setBtn.Click += delegate { OpenSettings(); };
+        tip.SetToolTip(setBtn, "칸 수와 칸마다 열 앱 고르기");
+        bar.Controls.Add(setBtn);
+        updBtn = new IconBtn();
+        updBtn.Primary = true; updBtn.Glyph = "\uE896"; updBtn.Visible = false;
         updBtn.Click += delegate
         {
             try { Process.Start(Application.ExecutablePath); } catch { }
             Close();
         };
         bar.Controls.Add(updBtn);
-        var ver = new Label();
-        ver.Text = "v" + Updater.Version + "  "; ver.Font = btnFont; ver.ForeColor = Th.Sub; ver.Dock = DockStyle.Right; ver.Width = 70;
-        ver.TextAlign = ContentAlignment.MiddleRight;
-        bar.Controls.Add(ver);
+        verLbl = new Label();
+        verLbl.Text = "v" + Updater.Version; verLbl.Font = btnFont; verLbl.ForeColor = Th.Sub; verLbl.BackColor = Th.Glass;
+        verLbl.TextAlign = ContentAlignment.MiddleRight;
+        bar.Controls.Add(verLbl);
+        // 아래쪽 가는 선
+        bar.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
+        };
+        bar.Resize += delegate { LayoutBar(); };
+        barBtns = new IconBtn[] { allNew, resetBtn, setBtn };
         Controls.Add(bar);
         BuildComposer();
 
@@ -638,7 +745,7 @@ class MainForm : Form
         Th.Round(cell, 16);
 
         var head = new Panel();
-        head.Dock = DockStyle.Top; head.Height = 46; head.Padding = new Padding(0, 8, 0, 8);
+        head.Dock = DockStyle.Top; head.Height = 46; head.Padding = new Padding(0, 8, 2, 8);
         // 앱 색 동그라미
         var dot = new Panel();
         dot.Dock = DockStyle.Left; dot.Width = 26; dot.BackColor = Th.Card;
@@ -653,6 +760,7 @@ class MainForm : Form
         lbl.Dock = DockStyle.Fill; lbl.Font = font;
         lbl.ForeColor = Th.Text; lbl.TextAlign = ContentAlignment.MiddleLeft; lbl.BackColor = Th.Card;
         lbl.Cursor = Cursors.SizeAll;
+        tip.SetToolTip(lbl, "끌어서 다른 칸과 자리 바꾸기 · 두 번 누르면 크게 보기");
         lbl.DoubleClick += delegate { ToggleSolo(t); };
         lbl.MouseDown += delegate (object s, MouseEventArgs e)
         {
@@ -675,43 +783,29 @@ class MainForm : Form
             if (from != null && to != null && from != to) SwapCells(from, to);
         };
 
-        var btn = new Button();
-        btn.Dock = DockStyle.Right; btn.Width = 100; btn.FlatStyle = FlatStyle.Flat; btn.Font = btnFont;
-        Th.Chip(btn, false);
-        btn.Click += delegate { ToggleSolo(t); };
-
-        var change = new Button();
-        change.Dock = DockStyle.Right; change.Width = 70; change.FlatStyle = FlatStyle.Flat; change.Font = btnFont;
-        Th.Chip(change, false);
-        change.Text = "바꾸기 ▼";
-        change.Click += delegate { ShowAppMenu(t); };
-        var fresh = new Button();
-        fresh.Dock = DockStyle.Right; fresh.Width = 64; fresh.FlatStyle = FlatStyle.Flat; fresh.Font = btnFont;
-        Th.Chip(fresh, false);
-        fresh.Text = "새 대화";
-        fresh.Click += delegate { NewChat(t); };
-
-        var plus = new Button();
-        plus.Dock = DockStyle.Right; plus.Width = 30; plus.FlatStyle = FlatStyle.Flat; plus.Font = font;
-        Th.Chip(plus, false);
-        plus.Text = "＋";
-        plus.Click += delegate { Grow(t, 1.25); };
-        var minus = new Button();
-        minus.Dock = DockStyle.Right; minus.Width = 30; minus.FlatStyle = FlatStyle.Flat; minus.Font = font;
-        Th.Chip(minus, false);
-        minus.Text = "－";
-        minus.Click += delegate { Grow(t, 0.8); };
-
-        var tg = new Button();
-        tg.Dock = DockStyle.Right; tg.Width = 84; tg.FlatStyle = FlatStyle.Flat; tg.Font = btnFont;
-        Th.Chip(tg, false);
+        // 오른쪽 아이콘 버튼: [보내기 켬/끔] | [새 대화] [앱 바꾸기] [크게 보기]
+        var tg = HeadBtn("\uE724");
+        tg.Width = 34;
         tg.Click += delegate { t.SendOn = !t.SendOn; PaintToggle(t); SaveConfig(); UpdateHint(); };
+        var gap = new Panel();
+        gap.Dock = DockStyle.Right; gap.Width = 13; gap.BackColor = Th.Card;
+        gap.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 6, 6, 6, gap.Height - 6);
+        };
+        var fresh = HeadBtn("\uE70F");
+        tip.SetToolTip(fresh, "새 대화");
+        fresh.Click += delegate { NewChat(t); };
+        var change = HeadBtn("\uE8AB");
+        tip.SetToolTip(change, "앱 바꾸기");
+        change.Click += delegate { ShowAppMenu(t); };
+        var btn = HeadBtn("\uE740");
+        btn.Click += delegate { ToggleSolo(t); };
 
         head.Controls.Add(lbl);
         head.Controls.Add(dot);
         head.Controls.Add(tg);
-        head.Controls.Add(minus);
-        head.Controls.Add(plus);
+        head.Controls.Add(gap);
         head.Controls.Add(fresh);
         head.Controls.Add(change);
         head.Controls.Add(btn);
@@ -730,16 +824,23 @@ class MainForm : Form
         cell.Controls.Add(head);
         area.Controls.Add(cell);
 
-        // 칸 제목의 버튼들 사이에 틈 주기
-        foreach (Button hb in new Button[] { tg, minus, plus, fresh, change, btn })
-        { hb.FlatAppearance.BorderSize = 3; hb.FlatAppearance.BorderColor = Th.Card; }
         t.Dot = dot;
-        t.Cell = cell; t.Head = head; t.Lbl = lbl; t.Body = body; t.Btn = btn; t.Change = change; t.Wait = wait; t.SendTg = tg;
+        t.Cell = cell; t.Head = head; t.Lbl = lbl; t.Body = body; t.Btn = btn; t.Change = change; t.Wait = wait; t.SendTg = tg; t.Fresh = fresh;
         t.SendOn = a.SendPref >= 0 ? a.SendPref == 1 : a.IsAI;
         PaintToggle(t);
         ApplyLook(t);
         T.Add(t);
         return t;
+    }
+
+    // 칸 제목 줄의 아이콘 버튼 (오른쪽에 붙고, 버튼 사이에 2px 틈)
+    IconBtn HeadBtn(string glyph)
+    {
+        var b = new IconBtn();
+        b.Glyph = glyph; b.Ghost = true; b.Radius = 8;
+        b.Dock = DockStyle.Right; b.Width = 32;
+        b.BackColor = Th.Card;
+        return b;
     }
 
     void ApplyLook(Target t)
@@ -1085,7 +1186,9 @@ class MainForm : Form
                 t.Cell.SetBounds(xs[c], ys[r], ws[c], hs[r]);
                 t.Cell.Visible = true;
             }
-            t.Btn.Text = (solo == i) ? "◀ 돌아가기" : "□ 크게 보기";
+            t.Btn.Glyph = (solo == i) ? "\uE73F" : "\uE740";
+            tip.SetToolTip(t.Btn, (solo == i) ? "원래 칸 나누기로 돌아가기" : "이 칸만 크게 보기");
+            t.Btn.Invalidate();
         }
         SyncWindows();
         UpdateHint();
@@ -1237,19 +1340,21 @@ class MainForm : Form
 
     // ---------- 한 번에 보내기 ----------
     TextBox q;
-    Button sendBtn;
+    IconBtn sendBtn;
+    Label qHint;
     Label sendHint;
 
     void PaintToggle(Target t)
     {
         if (t.SendTg == null) return;
-        t.SendTg.Text = t.SendOn ? "보내기 켬" : "보내기 끔";
-        t.SendTg.BackColor = t.SendOn ? Th.AccentSoft : Th.ChipBg;
-        t.SendTg.ForeColor = t.SendOn ? Th.Accent : Th.Sub;
+        t.SendTg.Active = t.SendOn;
+        t.SendTg.Strike = !t.SendOn;
+        t.SendTg.Invalidate();
+        tip.SetToolTip(t.SendTg, t.SendOn ? "「모두에게 보내기」가 이 칸에도 들어가요 (누르면 끔)" : "이 칸에는 보내지 않아요 (누르면 켬)");
     }
 
     readonly List<string> attach = new List<string>();   // 함께 보낼 파일
-    Button fileBtn;
+    IconBtn fileBtn;
 
     void UpdateHint()
     {
@@ -1263,8 +1368,8 @@ class MainForm : Form
             for (int i = 0; i < attach.Count && i < 3; i++) names.Add(Path.GetFileName(attach[i]));
             files = "첨부 " + attach.Count + "개(" + string.Join(", ", names.ToArray()) + (attach.Count > 3 ? " 외" : "") + ") · ";
         }
-        sendHint.Text = files + "Enter 보내기 · Shift+Enter 줄바꿈 · 보이는 칸 중 " + n + "개에 보내요 · 파일은 입력창에 끌어다 놓아도 돼요";
-        if (fileBtn != null) fileBtn.Text = attach.Count > 0 ? "파일 " + attach.Count + "개" : "+ 파일";
+        sendHint.Text = files + "Enter 보내기 · Shift+Enter 줄바꿈 · 보이는 칸 중 " + n + "개에 보내요";
+        if (fileBtn != null) { fileBtn.Text = attach.Count > 0 ? "파일 " + attach.Count + "개" : "파일"; fileBtn.Active = attach.Count > 0; }
     }
 
     void AddFiles(string[] paths)
@@ -1309,17 +1414,24 @@ class MainForm : Form
         q = new TextBox();
         q.Multiline = true; q.Font = new Font("Malgun Gothic", 11); q.BorderStyle = BorderStyle.None;
         q.BackColor = Th.Card; q.ForeColor = Th.Text;
+        // 비어 있을 때 보이는 안내 글자
+        qHint = new Label();
+        qHint.Text = "모든 칸에 보낼 메시지를 입력하세요"; qHint.Font = q.Font; qHint.ForeColor = ColorTranslator.FromHtml("#aaa7bd");
+        qHint.BackColor = Th.Card; qHint.Cursor = Cursors.IBeam;
+        qHint.Click += delegate { q.Focus(); };
+        q.TextChanged += delegate { qHint.Visible = q.Text.Length == 0; };
         box.Controls.Add(q);
-        sendBtn = new Button();
-        sendBtn.Text = "모두에게 보내기"; sendBtn.Font = font;
-        Th.Chip(sendBtn, true);
-        Th.Round(sendBtn, 14);
+        box.Controls.Add(qHint);
+        qHint.BringToFront();
+        sendBtn = new IconBtn();
+        sendBtn.Primary = true; sendBtn.Glyph = "\uE724"; sendBtn.Text = "모두에게 보내기"; sendBtn.Radius = 14;
+        sendBtn.Font = new Font("Malgun Gothic", 10.5f, FontStyle.Bold);
         sendHint = new Label();
         sendHint.Font = btnFont; sendHint.ForeColor = Th.Sub; sendHint.TextAlign = ContentAlignment.MiddleLeft;
-        fileBtn = new Button();
-        fileBtn.Text = "+ 파일"; fileBtn.Font = font;
-        Th.Chip(fileBtn, false);
-        Th.Round(fileBtn, 14);
+        fileBtn = new IconBtn();
+        fileBtn.Glyph = "\uE723"; fileBtn.Text = "파일"; fileBtn.Radius = 14;
+        fileBtn.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+        tip.SetToolTip(fileBtn, "모든 칸에 함께 보낼 파일 넣기 (입력창에 끌어다 놓아도 돼요)");
         fileBtn.Click += delegate { FileButtonClick(); };
         comp.Controls.Add(box); comp.Controls.Add(fileBtn); comp.Controls.Add(sendBtn); comp.Controls.Add(sendHint);
         // 파일을 입력창에 끌어다 놓으면 첨부
@@ -1338,10 +1450,12 @@ class MainForm : Form
         comp.Resize += delegate
         {
             int w = comp.ClientSize.Width;
-            box.SetBounds(16, 12, Math.Max(120, w - 16 - 160 - 12 - 104), 50);
+            int sw = 172, fw = Math.Max(100, fileBtn.Need());
+            box.SetBounds(16, 12, Math.Max(120, w - 16 - sw - 8 - fw - 12), 50);
             q.SetBounds(16, 12, Math.Max(80, box.Width - 32), 28);
-            fileBtn.SetBounds(w - 16 - 150 - 8 - 96, 12, 96, 50);
-            sendBtn.SetBounds(w - 16 - 150, 12, 150, 50);
+            qHint.SetBounds(19, 13, Math.Max(80, box.Width - 40), 26);
+            fileBtn.SetBounds(w - 16 - sw - 8 - fw, 12, fw, 50);
+            sendBtn.SetBounds(w - 16 - sw, 12, sw, 50);
             sendHint.SetBounds(20, 66, Math.Max(100, w - 40), 24);
         };
         box.Click += delegate { q.Focus(); };
@@ -1359,7 +1473,24 @@ class MainForm : Form
     }
 
     bool busy;   // 보내기·새 대화 작업 중 (겹치지 않게)
-    Button updBtn;
+    IconBtn updBtn;
+    IconBtn[] barBtns;
+    Label verLbl;
+    readonly ToolTip tip = new ToolTip();
+
+    void LayoutBar()
+    {
+        if (barBtns == null) return;
+        int h = 34, y = (bar.Height - h) / 2, x = 160;
+        // 왼쪽: 모두 새 대화 · 칸 크기 같게
+        for (int i = 0; i < 2; i++) { int w = barBtns[i].Need(); barBtns[i].SetBounds(x, y, w, h); x += w + 8; }
+        // 오른쪽: [업데이트] 버전 [설정]
+        int r = bar.ClientSize.Width - 16;
+        int sw = barBtns[2].Need();
+        barBtns[2].SetBounds(r - sw, y, sw, h); r -= sw + 10;
+        verLbl.SetBounds(r - 60, y, 60, h); r -= 60 + 10;
+        if (updBtn.Visible) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); }
+    }
 
     void CheckUpdateLater()
     {
@@ -1373,6 +1504,8 @@ class MainForm : Form
             if (got == null) return;
             updBtn.Text = "새 버전 v" + got + " 준비됨 · 다시 시작";
             updBtn.Visible = true;
+            tip.SetToolTip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
+            LayoutBar();
         });
     }
 
@@ -1484,6 +1617,16 @@ class MainForm : Form
 
     // 앱 안의 「새 채팅」 버튼을 찾아 누름(일꾼 스레드). 웹 창은 못 찾으면 창을 새로 열어서 새 대화로
     void NewChat(Target t) { NewChat(t, false); }
+
+    static void keyCombo(byte vk)
+    {
+        W.keybd_event(0x11, 0, 0, UIntPtr.Zero);
+        W.keybd_event(0x10, 0, 0, UIntPtr.Zero);
+        W.keybd_event(vk, 0, 0, UIntPtr.Zero);
+        W.keybd_event(vk, 0, 2, UIntPtr.Zero);
+        W.keybd_event(0x10, 0, 2, UIntPtr.Zero);
+        W.keybd_event(0x11, 0, 2, UIntPtr.Zero);
+    }
     void NewChat(Target t, bool quiet)
     {
         if (t.Hwnd == IntPtr.Zero) { if (!quiet) Reopen(t); return; }
@@ -1493,6 +1636,22 @@ class MainForm : Form
         {
 #if !NO_UIA
             done = Uia.ClickByName(h, NewChatNames);
+            if (!done && !t.Web)
+            {
+                // 설정 화면 같은 게 열려 있으면 새 채팅 버튼이 안 보임 → Esc로 닫고 다시 찾기
+                W.ForceForeground(h);
+                System.Threading.Thread.Sleep(150);
+                W.Key(0x1B, false);
+                System.Threading.Thread.Sleep(400);
+                done = Uia.ClickByName(h, NewChatNames);
+                string nm = t.App.Name.ToLowerInvariant();
+                if (!done && (nm.Contains("chatgpt") || nm.Contains("gemini")))
+                {
+                    // ChatGPT·Gemini 새 채팅 단축키 Ctrl+Shift+O
+                    keyCombo(0x4F);
+                    done = true;
+                }
+            }
 #endif
         }, delegate
         {
@@ -1545,7 +1704,23 @@ class MainForm : Form
         W.GetWindowRect(t.Hwnd, out wr);
         int ww = wr.R - wr.L, wh = wr.B - wr.T;
         bool moved = Math.Abs(wr.L - r.X) > 4 || Math.Abs(wr.T - r.Y) > 4 || Math.Abs(ww - r.Width) > 4 || Math.Abs(wh - r.Height) > 4;
-        if (!moved) { t.Misfit = 0; ClipTo(t, top, r.Width, r.Height - top); return; }
+        if (!moved)
+        {
+            t.Misfit = 0;
+            if (t.Rgn.Length > 0 && !W.HasRgn(t.Hwnd))
+            {
+                t.Rgn = "";
+                if (top > 0 && ++t.RgnLost >= 4)
+                {
+                    // 이 앱은 잘라 둔 모양을 계속 풀어 버림 → 제목 줄을 감추지 않고 칸에 딱 맞춤
+                    t.CapH = 0;
+                    SyncWindows();
+                    return;
+                }
+            }
+            ClipTo(t, top, r.Width, r.Height - top);
+            return;
+        }
         W.Place(t.Hwnd, r.X, r.Y, r.Width, r.Height);
         ClipTo(t, top, r.Width, r.Height - top);
         bool over = ww > r.Width + 10 || wh > r.Height + 10;
@@ -1719,7 +1894,7 @@ class MainForm : Form
             if (over && t.App.IsInstalled && t.Cell.Visible)
             {
                 // 웹 창으로 바꿀 수 없는 프로그램은 안내만 표시
-                t.Lbl.Text = "  " + t.App.Name + "  (칸이 프로그램 최소 크기보다 작아요 · ＋로 키워 주세요)";
+                t.Lbl.Text = "  " + t.App.Name + "  (칸이 프로그램 최소 크기보다 작아요 · 칸 사이 틈을 끌어 키워 주세요)";
                 continue;
             }
             if (!t.Web && t.Cell.Visible && over) SwitchToWeb(t);
@@ -1767,7 +1942,7 @@ class MainForm : Form
                 t.OldStyle = origStyles[kv.Key];
                 t.Lost = false; t.Missing = 0; t.Misfit = 0;
                 t.Hwnd = h;
-                t.CapH = 0; t.AutoHide = false; t.Rgn = "";
+                t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0;
                 FindTitleBar(t, h, proc);
                 t.Pending = true;
                 t.CheckAt = DateTime.Now.AddMilliseconds(800);
@@ -1943,7 +2118,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.3.1";
+    public const string Version = "1.4.0";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
