@@ -373,7 +373,7 @@ class IconBtn : Control
     {
         if (string.IsNullOrEmpty(Text)) return Height;
         using (Graphics g = CreateGraphics())
-            return (int)(14 + 18 + 7 + g.MeasureString(Text, Font).Width + 12);
+            return (int)((Glyph.Length > 0 ? 14 + 18 + 7 : 18) + g.MeasureString(Text, Font).Width + (Glyph.Length > 0 ? 12 : 18));
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -403,12 +403,266 @@ class IconBtn : Control
             if (hasText)
             {
                 SizeF ts = g.MeasureString(Text, Font);
-                g.DrawString(Text, Font, br, 14 + 18 + 7, (Height - ts.Height) / 2f + 1);
+                float tx = Glyph.Length > 0 ? 14 + 18 + 7 : (Width - ts.Width) / 2f;
+                g.DrawString(Text, Font, br, tx, (Height - ts.Height) / 2f + 1);
             }
         }
         if (Strike && !Active)
             using (var pen = new Pen(fg, 1.6f))
                 g.DrawLine(pen, gx + 1, gy + gs.Height - 4, gx + gs.Width - 3, gy + 3);
+    }
+}
+
+// 둥근 상자(흰 바탕 + 연한 테두리) — 입력칸·목록 바탕
+class RoundBox : Panel
+{
+    public Color Fill = Color.White, Border = ColorTranslator.FromHtml("#e3dff4");
+    public int Radius = 12;
+    public RoundBox()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), Radius))
+        using (var br = new SolidBrush(Fill))
+        using (var pen = new Pen(Border))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+    }
+}
+
+// 칸 수 고르기 타일 (작은 칸 모양 그림 + 「4칸」)
+class ChoiceTile : Control
+{
+    public int Cols, Rows;
+    public bool Selected;
+    bool hover;
+    public ChoiceTile()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Cursor = Cursors.Hand;
+        Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        Color fill = Selected ? Th.AccentSoft : Color.White;
+        Color border = Selected ? Th.Accent : hover ? ColorTranslator.FromHtml("#c9c2f3") : ColorTranslator.FromHtml("#e3dff4");
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 12))
+        using (var br = new SolidBrush(fill))
+        using (var pen = new Pen(border, Selected ? 2f : 1f))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+        // 작은 칸 모양
+        int gw = 46, gh = 28, gx = (Width - gw) / 2, gy = 14, gap = 3;
+        int cw = (gw - gap * (Cols - 1)) / Cols, ch = (gh - gap * (Rows - 1)) / Rows;
+        using (var br = new SolidBrush(Selected ? Th.Accent : ColorTranslator.FromHtml("#cfcae6")))
+            for (int r = 0; r < Rows; r++)
+                for (int c = 0; c < Cols; c++)
+                    using (GraphicsPath p = Th.RoundPath(new Rectangle(gx + c * (cw + gap), gy + r * (ch + gap), cw, ch), 2))
+                        g.FillPath(br, p);
+        using (var br = new SolidBrush(Selected ? Th.Accent : Th.Text))
+        {
+            SizeF s = g.MeasureString(Text, Font);
+            g.DrawString(Text, Font, br, (Width - s.Width) / 2f, gy + gh + 8);
+        }
+    }
+}
+
+// 칸 하나를 나타내는 카드 (번호 · 앱 색 · 앱 이름) — 누르면 앱 고르기
+class SlotCard : Control
+{
+    public int Number;
+    public AppInfo App;
+    bool hover;
+    static Font nameFont = new Font("Malgun Gothic", 11.5f, FontStyle.Bold);
+    static Font smallFont = new Font("Malgun Gothic", 8.5f);
+    static Font numFont = new Font("Segoe UI", 9f, FontStyle.Bold);
+    public SlotCard()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Cursor = Cursors.Hand;
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 12))
+        using (var br = new SolidBrush(Color.White))
+        using (var pen = new Pen(hover ? Th.Accent : ColorTranslator.FromHtml("#e3dff4"), hover ? 1.6f : 1f))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+        // 번호
+        using (var br = new SolidBrush(Th.AccentSoft)) g.FillEllipse(br, 12, 12, 22, 22);
+        using (var br = new SolidBrush(Th.Accent))
+        {
+            string n = Number.ToString();
+            SizeF s = g.MeasureString(n, numFont);
+            g.DrawString(n, numFont, br, 23 - s.Width / 2f, 23 - s.Height / 2f);
+        }
+        using (var br = new SolidBrush(Th.Sub)) g.DrawString("번 칸", smallFont, br, 38, 15);
+        // 앱 색 + 이름
+        Color c = Th.Accent;
+        try { c = ColorTranslator.FromHtml(App.Color); } catch { }
+        int y = Math.Max(44, Height / 2 - 4);
+        using (var br = new SolidBrush(c)) g.FillEllipse(br, 14, y + 5, 10, 10);
+        var rect = new RectangleF(30, y - 2, Width - 44, 26);
+        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+        using (var br = new SolidBrush(Th.Text))
+            g.DrawString(App != null ? App.Name : "", nameFont, br, rect, sf);
+        if (Height >= 96)
+            using (var br = new SolidBrush(hover ? Th.Accent : Th.Sub))
+                g.DrawString("눌러서 바꾸기  ▾", smallFont, br, 14, Height - 26);
+    }
+}
+
+// 연보라 메뉴 색
+class SoftColors : ProfessionalColorTable
+{
+    public override Color MenuItemSelected { get { return Th.AccentSoft; } }
+    public override Color MenuItemBorder { get { return Th.AccentSoft; } }
+    public override Color MenuBorder { get { return ColorTranslator.FromHtml("#dcd7f2"); } }
+    public override Color ToolStripDropDownBackground { get { return Color.White; } }
+    public override Color ImageMarginGradientBegin { get { return Color.White; } }
+    public override Color ImageMarginGradientMiddle { get { return Color.White; } }
+    public override Color ImageMarginGradientEnd { get { return Color.White; } }
+    public override Color SeparatorDark { get { return ColorTranslator.FromHtml("#ece9f6"); } }
+    public override Color SeparatorLight { get { return Color.White; } }
+    public override Color CheckBackground { get { return Th.AccentSoft; } }
+    public override Color CheckSelectedBackground { get { return Th.AccentSoft; } }
+    public override Color CheckPressedBackground { get { return Th.AccentSoft; } }
+}
+
+static class Ui
+{
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
+    [DllImport("user32.dll")] static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+    public static Font Body = new Font("Malgun Gothic", 9.5f);
+
+    public static ContextMenuStrip Menu()
+    {
+        var m = new ContextMenuStrip();
+        m.Renderer = new ToolStripProfessionalRenderer(new SoftColors()) { RoundedEdges = false };
+        m.Font = new Font("Malgun Gothic", 10f);
+        m.Padding = new Padding(4);
+        return m;
+    }
+
+    // 끌어서 창 옮기기 (제목 줄이 없는 창)
+    public static void Draggable(Control c, Form f)
+    {
+        c.MouseDown += delegate (object o, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture();
+            SendMessage(f.Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
+        };
+    }
+
+    // 요즘 스타일 창 틀: 위 제목·설명·닫기 / 가운데 내용 / 아래 취소·확인
+    public static Form Shell(string title, string sub, int w, int h, string okText, out Panel body, out IconBtn ok, out IconBtn cancel)
+    {
+        var f = new Form();
+        f.FormBorderStyle = FormBorderStyle.None;
+        f.StartPosition = FormStartPosition.CenterParent;
+        f.ShowInTaskbar = false;
+        f.ClientSize = new Size(w, h);
+        f.BackColor = Th.Glass;
+        f.Font = Body;
+        f.KeyPreview = true;
+        f.Text = title;
+        f.HandleCreated += delegate
+        {
+            int round = 2, border = 0x00F2D7DC;   // 둥근 모서리, 연보라 테두리(BGR)
+            try { DwmSetWindowAttribute(f.Handle, 33, ref round, 4); DwmSetWindowAttribute(f.Handle, 34, ref border, 4); } catch { }
+        };
+        f.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(ColorTranslator.FromHtml("#dcd7f2"))) e.Graphics.DrawRectangle(pen, 0, 0, f.ClientSize.Width - 1, f.ClientSize.Height - 1);
+        };
+
+        var head = new Panel();
+        head.Dock = DockStyle.Top; head.Height = 84; head.BackColor = Th.Glass;
+        var t = new Label();
+        t.Text = title; t.Font = new Font("Malgun Gothic", 15f, FontStyle.Bold); t.ForeColor = Th.Text;
+        t.AutoSize = true; t.Location = new Point(24, 20); t.BackColor = Th.Glass;
+        var st = new Label();
+        st.Text = sub; st.Font = Body; st.ForeColor = Th.Sub;
+        st.AutoSize = true; st.Location = new Point(26, 54); st.BackColor = Th.Glass;
+        var x = new IconBtn();
+        x.Ghost = true; x.Glyph = "\uE711"; x.BackColor = Th.Glass; x.Radius = 8;
+        x.SetBounds(w - 20 - 34, 18, 34, 34);
+        x.Click += delegate { f.DialogResult = DialogResult.Cancel; f.Close(); };
+        head.Controls.Add(t); head.Controls.Add(st); head.Controls.Add(x);
+        Draggable(head, f); Draggable(t, f); Draggable(st, f);
+
+        var foot = new Panel();
+        foot.Dock = DockStyle.Bottom; foot.Height = 72; foot.BackColor = Th.Glass;
+        foot.Paint += delegate (object o, PaintEventArgs e)
+        {
+            using (var pen = new Pen(ColorTranslator.FromHtml("#ebe8f6"))) e.Graphics.DrawLine(pen, 24, 0, foot.Width - 24, 0);
+        };
+        ok = new IconBtn();
+        ok.Primary = true; ok.Glyph = "\uE73E"; ok.Text = okText; ok.Radius = 12;
+        ok.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+        cancel = new IconBtn();
+        cancel.Text = "취소"; cancel.Radius = 12;
+        cancel.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+        foot.Controls.Add(ok); foot.Controls.Add(cancel);
+        IconBtn okB = ok, caB = cancel;
+        foot.Resize += delegate
+        {
+            int ow = Math.Max(120, okB.Need()), cw = Math.Max(84, caB.Need());
+            okB.SetBounds(foot.Width - 24 - ow, 16, ow, 40);
+            caB.SetBounds(foot.Width - 24 - ow - 8 - cw, 16, cw, 40);
+        };
+        cancel.Click += delegate { f.DialogResult = DialogResult.Cancel; f.Close(); };
+        f.KeyDown += delegate (object o, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape) { f.DialogResult = DialogResult.Cancel; f.Close(); }
+        };
+
+        body = new Panel();
+        body.Dock = DockStyle.Fill; body.BackColor = Th.Glass;
+        f.Controls.Add(body);
+        f.Controls.Add(foot);
+        f.Controls.Add(head);
+        return f;
+    }
+
+    // 이름표 + 흰 둥근 입력칸
+    public static TextBox Field(Control parent, string label, string hint, int x, int y, int w)
+    {
+        var l = new Label();
+        l.Text = label; l.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); l.ForeColor = Th.Text;
+        l.AutoSize = true; l.Location = new Point(x, y); l.BackColor = parent.BackColor;
+        var box = new RoundBox();
+        box.SetBounds(x, y + 26, w, 44);
+        var tb = new TextBox();
+        tb.BorderStyle = BorderStyle.None; tb.Font = new Font("Malgun Gothic", 10.5f); tb.BackColor = Color.White; tb.ForeColor = Th.Text;
+        tb.SetBounds(14, 12, w - 28, 22);
+        box.Controls.Add(tb);
+        box.Click += delegate { tb.Focus(); };
+        parent.Controls.Add(l); parent.Controls.Add(box);
+        if (hint != null)
+        {
+            var h = new Label();
+            h.Text = hint; h.Font = new Font("Malgun Gothic", 8.5f); h.ForeColor = Th.Sub;
+            h.AutoSize = true; h.Location = new Point(x + 2, y + 76); h.BackColor = parent.BackColor;
+            parent.Controls.Add(h);
+        }
+        return tb;
     }
 }
 
@@ -932,33 +1186,13 @@ class MainForm : Form
 
     List<AppInfo> SettingsDialog()
     {
-        var f = new Form();
-        f.Text = firstRun ? "RamSpirit — 처음 설정" : "RamSpirit — 설정";
-        f.FormBorderStyle = FormBorderStyle.FixedDialog;
-        f.StartPosition = FormStartPosition.CenterScreen;
-        f.MaximizeBox = false; f.MinimizeBox = false;
-        f.ClientSize = new Size(440, 470);
-        f.Font = btnFont;
+        Panel body; IconBtn ok, cancel;
+        var f = Ui.Shell(firstRun ? "처음 설정" : "설정",
+            firstRun ? "한 번만 정해 두면 다음부터는 아이콘만 눌러도 이대로 열려요" : "칸 수와 칸마다 열 앱을 고르세요",
+            660, 620, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
 
-        var intro = new Label();
-        intro.Text = firstRun
-            ? "처음 한 번만 정하면 다음부터는 아이콘만 누르면 이대로 열려요.\n나중에 위쪽 「설정」에서 언제든 바꿀 수 있어요."
-            : "칸 수와 칸마다 열 앱을 고르세요.";
-        intro.SetBounds(16, 12, 410, 40);
-        f.Controls.Add(intro);
-
-        var lc = new Label(); lc.Text = "칸 수"; lc.SetBounds(16, 62, 60, 22);
-        var count = new ComboBox(); count.DropDownStyle = ComboBoxStyle.DropDownList; count.SetBounds(80, 58, 120, 24);
-        foreach (int n in new int[] { 2, 4, 6, 8 }) count.Items.Add(n + "칸");
-        f.Controls.Add(lc); f.Controls.Add(count);
-
-        var order = new Label();
-        order.Text = "칸 번호: 윗줄 왼쪽부터 → 오른쪽, 그다음 아랫줄";
-        order.ForeColor = Th.Sub; order.SetBounds(16, 90, 410, 20);
-        f.Controls.Add(order);
-
-        var labels = new List<Label>();
-        var boxes = new List<ComboBox>();
+        // 칸마다 처음 보여 줄 앱 (지금 칸 → 아직 안 쓴 AI 순서)
+        var slots = new AppInfo[8];
         var usedNames = new List<string>();
         for (int i = 0; i < 8; i++)
         {
@@ -975,46 +1209,93 @@ class MainForm : Form
                 if (cur == null) cur = AppInfo.Presets[i % AppInfo.Presets.Length];
             }
             usedNames.Add(cur.Name);
+            slots[i] = cur;
+        }
+        int count = Math.Max(2, Math.Min(8, T.Count / 2 * 2));
 
-            var l = new Label(); l.Text = (i + 1) + "번 칸"; l.SetBounds(16, 120 + i * 34, 60, 22);
-            var cb = new ComboBox(); cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.SetBounds(80, 116 + i * 34, 340, 24);
-            bool found = false;
-            foreach (AppInfo pr in AppInfo.Presets) { cb.Items.Add(pr); if (pr.SameAs(cur)) { cb.SelectedItem = pr; found = true; } }
-            if (!found) { cb.Items.Add(cur); cb.SelectedItem = cur; }
-            cb.Items.Add(AppInfo.InstalledEntry);
-            cb.Items.Add(AppInfo.CustomEntry);
-            cb.Tag = cb.SelectedIndex;
-            ComboBox me = cb;
-            cb.SelectedIndexChanged += delegate
-            {
-                if (me.SelectedItem == AppInfo.CustomEntry || me.SelectedItem == AppInfo.InstalledEntry)
-                {
-                    AppInfo a = (me.SelectedItem == AppInfo.CustomEntry) ? AskCustom(f) : PickInstalled(f);
-                    if (a != null) { me.Items.Insert(me.Items.Count - 2, a); me.SelectedItem = a; }
-                    else me.SelectedIndex = (int)me.Tag;
-                }
-                me.Tag = me.SelectedIndex;
-            };
-            f.Controls.Add(l); f.Controls.Add(cb);
-            labels.Add(l); boxes.Add(cb);
+        var l1 = new Label();
+        l1.Text = "칸 수"; l1.Font = new Font("Malgun Gothic", 10.5f, FontStyle.Bold); l1.ForeColor = Th.Text;
+        l1.AutoSize = true; l1.Location = new Point(24, 6); l1.BackColor = Th.Glass;
+        body.Controls.Add(l1);
+
+        var tiles = new List<ChoiceTile>();
+        int tw = (660 - 48 - 3 * 12) / 4;
+        int[] ns = { 2, 4, 6, 8 };
+        for (int i = 0; i < 4; i++)
+        {
+            int n = ns[i];
+            var tile = new ChoiceTile();
+            tile.Text = n + "칸"; tile.Rows = n >= 4 ? 2 : 1; tile.Cols = n / tile.Rows;
+            tile.SetBounds(24 + i * (tw + 12), 34, tw, 76);
+            tiles.Add(tile);
+            body.Controls.Add(tile);
         }
 
-        count.SelectedIndexChanged += delegate
+        var l2 = new Label();
+        l2.Text = "칸마다 열 앱"; l2.Font = l1.Font; l2.ForeColor = Th.Text;
+        l2.AutoSize = true; l2.Location = new Point(24, 132); l2.BackColor = Th.Glass;
+        var l2s = new Label();
+        l2s.Text = "실제 화면과 같은 자리예요 · 카드를 눌러 앱을 고르세요"; l2s.Font = Ui.Body; l2s.ForeColor = Th.Sub;
+        l2s.AutoSize = true; l2s.Location = new Point(124, 134); l2s.BackColor = Th.Glass;
+        body.Controls.Add(l2); body.Controls.Add(l2s);
+
+        var grid = new Panel();
+        grid.BackColor = Th.Glass;
+        grid.SetBounds(24, 162, 660 - 48, 620 - 84 - 72 - 162 - 12);
+        body.Controls.Add(grid);
+
+        Action rebuild = null;
+        rebuild = delegate
         {
-            int n = (count.SelectedIndex + 1) * 2;
-            for (int i = 0; i < 8; i++) { labels[i].Visible = i < n; boxes[i].Visible = i < n; }
+            foreach (ChoiceTile tl in tiles) { tl.Selected = tl.Text == count + "칸"; tl.Invalidate(); }
+            grid.SuspendLayout();
+            while (grid.Controls.Count > 0) { Control c = grid.Controls[0]; grid.Controls.RemoveAt(0); c.Dispose(); }
+            int rows = count >= 4 ? 2 : 1, cols = count / rows, gap = 12;
+            int cw = (grid.Width - gap * (cols - 1)) / cols;
+            int ch = Math.Min(130, (grid.Height - gap * (rows - 1)) / rows);
+            for (int i = 0; i < count; i++)
+            {
+                int idx = i;
+                var card = new SlotCard();
+                card.Number = i + 1; card.App = slots[i];
+                card.SetBounds((i % cols) * (cw + gap), (i / cols) * (ch + gap), cw, ch);
+                card.Click += delegate
+                {
+                    var m = Ui.Menu();
+                    foreach (AppInfo pr in AppInfo.Presets)
+                    {
+                        AppInfo pick = pr;
+                        var it = new ToolStripMenuItem(pr.Name);
+                        it.Checked = pr.SameAs(slots[idx]);
+                        it.Click += delegate { slots[idx] = pick; card.App = pick; card.Invalidate(); };
+                        m.Items.Add(it);
+                    }
+                    m.Items.Add(new ToolStripSeparator());
+                    var inst = new ToolStripMenuItem("설치된 프로그램에서 고르기...");
+                    inst.Click += delegate { AppInfo a = PickInstalled(f); if (a != null) { slots[idx] = a; card.App = a; card.Invalidate(); } };
+                    var cus = new ToolStripMenuItem("직접 입력 (사이트 주소)...");
+                    cus.Click += delegate { AppInfo a = AskCustom(f); if (a != null) { slots[idx] = a; card.App = a; card.Invalidate(); } };
+                    m.Items.Add(inst); m.Items.Add(cus);
+                    m.Show(card, new Point(0, card.Height + 2));
+                };
+                grid.Controls.Add(card);
+            }
+            grid.ResumeLayout();
         };
-        count.SelectedIndex = Math.Max(0, Math.Min(3, T.Count / 2 - 1));
+        foreach (ChoiceTile tl in tiles)
+        {
+            ChoiceTile me = tl;
+            tl.Click += delegate { count = int.Parse(me.Text.Replace("칸", "")); rebuild(); };
+        }
+        rebuild();
 
-        var ok = new Button(); ok.Text = firstRun ? "이대로 시작" : "저장하고 적용"; ok.SetBounds(212, 432, 120, 28); ok.DialogResult = DialogResult.OK;
-        var cancel = new Button(); cancel.Text = "취소"; cancel.SetBounds(338, 432, 82, 28); cancel.DialogResult = DialogResult.Cancel;
-        f.Controls.Add(ok); f.Controls.Add(cancel);
-        f.AcceptButton = ok; f.CancelButton = cancel;
-
-        if (f.ShowDialog(this) != DialogResult.OK) return null;
-        int total = (count.SelectedIndex + 1) * 2;
+        bool chosen = false;
+        ok.Click += delegate { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); };
+        f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); } };
+        f.ShowDialog(this);
+        if (!chosen) return null;
         var result = new List<AppInfo>();
-        for (int i = 0; i < total; i++) result.Add((AppInfo)boxes[i].SelectedItem);
+        for (int i = 0; i < count; i++) result.Add(slots[i]);
         return result;
     }
 
@@ -1094,7 +1375,7 @@ class MainForm : Form
     // ---------- 앱 바꾸기 ----------
     void ShowAppMenu(Target t)
     {
-        var menu = new ContextMenuStrip();
+        var menu = Ui.Menu();
         foreach (AppInfo p in AppInfo.Presets)
         {
             AppInfo pick = p;
@@ -1136,21 +1417,43 @@ class MainForm : Form
         var names = new List<string>(startApps.Keys);
         names.Sort(StringComparer.CurrentCultureIgnoreCase);
 
-        var f = new Form();
-        f.Text = "설치된 프로그램에서 고르기";
-        f.FormBorderStyle = FormBorderStyle.FixedDialog;
-        f.StartPosition = FormStartPosition.CenterParent;
-        f.MaximizeBox = false; f.MinimizeBox = false;
-        f.ClientSize = new Size(420, 500);
-        f.Font = btnFont;
+        Panel body; IconBtn ok, cancel;
+        var f = Ui.Shell("설치된 프로그램에서 고르기", "이름 일부만 써도 찾아져요 (예: 카카오톡, 한글, 메모장)", 480, 600, "고르기", out body, out ok, out cancel);
 
-        var l = new Label(); l.Text = "검색 (예: 카카오톡, 한글, 메모장)"; l.SetBounds(16, 12, 380, 20);
-        var search = new TextBox(); search.SetBounds(16, 34, 388, 24);
-        var list = new ListBox(); list.SetBounds(16, 66, 388, 380);
-        var ok = new Button(); ok.Text = "고르기"; ok.SetBounds(232, 458, 82, 28); ok.DialogResult = DialogResult.OK;
-        var cancel = new Button(); cancel.Text = "취소"; cancel.SetBounds(322, 458, 82, 28); cancel.DialogResult = DialogResult.Cancel;
-        f.Controls.Add(l); f.Controls.Add(search); f.Controls.Add(list); f.Controls.Add(ok); f.Controls.Add(cancel);
-        f.AcceptButton = ok; f.CancelButton = cancel;
+        var sbox = new RoundBox();
+        sbox.SetBounds(24, 4, 480 - 48, 44);
+        var icon = new Label();
+        icon.Text = "\uE721"; icon.Font = IconBtn.IconFont(11f); icon.ForeColor = Th.Sub; icon.BackColor = Color.White;
+        icon.SetBounds(14, 13, 20, 20);
+        var search = new TextBox();
+        search.BorderStyle = BorderStyle.None; search.Font = new Font("Malgun Gothic", 10.5f); search.BackColor = Color.White;
+        search.SetBounds(40, 12, 480 - 48 - 56, 22);
+        sbox.Controls.Add(icon); sbox.Controls.Add(search);
+        sbox.Click += delegate { search.Focus(); };
+        body.Controls.Add(sbox);
+
+        var lbox = new RoundBox();
+        lbox.SetBounds(24, 60, 480 - 48, 600 - 84 - 72 - 60 - 12);
+        var list = new ListBox();
+        list.BorderStyle = BorderStyle.None; list.DrawMode = DrawMode.OwnerDrawFixed; list.ItemHeight = 36;
+        list.Font = new Font("Malgun Gothic", 10.5f); list.BackColor = Color.White; list.IntegralHeight = false;
+        list.SetBounds(6, 6, lbox.Width - 12, lbox.Height - 12);
+        list.DrawItem += delegate (object o, DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.FillRectangle(Brushes.White, e.Bounds);
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            if (sel)
+                using (var br = new SolidBrush(Th.AccentSoft))
+                using (GraphicsPath p = Th.RoundPath(new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, e.Bounds.Width - 4, e.Bounds.Height - 4), 8))
+                    g.FillPath(br, p);
+            TextRenderer.DrawText(g, list.Items[e.Index].ToString(), list.Font, new Rectangle(e.Bounds.X + 14, e.Bounds.Y, e.Bounds.Width - 20, e.Bounds.Height),
+                sel ? Th.Accent : Th.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
+        lbox.Controls.Add(list);
+        body.Controls.Add(lbox);
 
         EventHandler fill = delegate
         {
@@ -1161,39 +1464,51 @@ class MainForm : Form
                 if (q.Length == 0 || n.IndexOf(q, StringComparison.CurrentCultureIgnoreCase) >= 0) list.Items.Add(n);
             if (list.Items.Count > 0) list.SelectedIndex = 0;
             list.EndUpdate();
+            ok.Enabled = list.Items.Count > 0;
         };
         search.TextChanged += fill;
-        list.DoubleClick += delegate { if (list.SelectedItem != null) { f.DialogResult = DialogResult.OK; f.Close(); } };
+        search.KeyDown += delegate (object o, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Down && list.SelectedIndex < list.Items.Count - 1) { list.SelectedIndex++; e.Handled = true; }
+            if (e.KeyCode == Keys.Up && list.SelectedIndex > 0) { list.SelectedIndex--; e.Handled = true; }
+        };
+        bool chosen = false;
+        Action pickNow = delegate { if (list.SelectedItem != null) { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); } };
+        ok.Click += delegate { pickNow(); };
+        list.DoubleClick += delegate { pickNow(); };
+        f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; pickNow(); } };
+        f.Shown += delegate { search.Focus(); };
         fill(null, EventArgs.Empty);
 
-        if (f.ShowDialog(owner) != DialogResult.OK || list.SelectedItem == null) return null;
+        f.ShowDialog(owner);
+        if (!chosen || list.SelectedItem == null) return null;
         string pick = (string)list.SelectedItem;
         return AppInfo.FromInstalled(pick, startApps[pick]);
     }
 
     AppInfo AskCustom(IWin32Window owner)
     {
-        var f = new Form();
-        f.Text = "직접 입력";
-        f.FormBorderStyle = FormBorderStyle.FixedDialog;
-        f.StartPosition = FormStartPosition.CenterParent;
-        f.MaximizeBox = false; f.MinimizeBox = false;
-        f.ClientSize = new Size(420, 170);
-        f.Font = btnFont;
-
-        var l1 = new Label(); l1.Text = "이름 (예: 뤼튼, 클로바X)"; l1.SetBounds(16, 14, 380, 20);
-        var name = new TextBox(); name.SetBounds(16, 36, 388, 24);
-        var l2 = new Label(); l2.Text = "사이트 주소 (예: https://clova-x.naver.com)"; l2.SetBounds(16, 70, 380, 20);
-        var url = new TextBox(); url.SetBounds(16, 92, 388, 24);
-        var ok = new Button(); ok.Text = "확인"; ok.SetBounds(232, 130, 82, 28); ok.DialogResult = DialogResult.OK;
-        var cancel = new Button(); cancel.Text = "취소"; cancel.SetBounds(322, 130, 82, 28); cancel.DialogResult = DialogResult.Cancel;
-        f.Controls.Add(l1); f.Controls.Add(name); f.Controls.Add(l2); f.Controls.Add(url); f.Controls.Add(ok); f.Controls.Add(cancel);
-        f.AcceptButton = ok; f.CancelButton = cancel;
-
-        if (f.ShowDialog(owner) != DialogResult.OK) return null;
-        string n = name.Text.Trim(), u = url.Text.Trim();
-        if (n.Length == 0 || u.Length == 0) return null;
-        return AppInfo.Custom(n, u);
+        Panel body; IconBtn ok, cancel;
+        var f = Ui.Shell("사이트 직접 넣기", "목록에 없는 AI나 웹사이트를 칸에 넣어요", 480, 380, "넣기", out body, out ok, out cancel);
+        TextBox name = Ui.Field(body, "이름", "칸 제목에 보일 이름이에요 (예: 클로바X)", 24, 4, 480 - 48);
+        TextBox url = Ui.Field(body, "사이트 주소", "https:// 는 빼고 써도 돼요 (예: clova-x.naver.com)", 24, 110, 480 - 48);
+        var err = new Label();
+        err.ForeColor = ColorTranslator.FromHtml("#d6335e"); err.Font = Ui.Body; err.AutoSize = true;
+        err.Location = new Point(26, 206); err.BackColor = Th.Glass;
+        body.Controls.Add(err);
+        bool chosen = false;
+        Action done = delegate
+        {
+            if (name.Text.Trim().Length == 0) { err.Text = "이름을 써 주세요"; name.Focus(); return; }
+            if (url.Text.Trim().Length == 0) { err.Text = "사이트 주소를 써 주세요"; url.Focus(); return; }
+            chosen = true; f.DialogResult = DialogResult.OK; f.Close();
+        };
+        ok.Click += delegate { done(); };
+        f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; done(); } };
+        f.Shown += delegate { name.Focus(); };
+        f.ShowDialog(owner);
+        if (!chosen) return null;
+        return AppInfo.Custom(name.Text.Trim(), url.Text.Trim());
     }
 
     void ChangeApp(Target t, AppInfo a)
@@ -1460,7 +1775,7 @@ class MainForm : Form
     {
         if (attach.Count > 0)
         {
-            var menu = new ContextMenuStrip();
+            var menu = Ui.Menu();
             var more = new ToolStripMenuItem("파일 더 넣기...");
             more.Click += delegate { PickFiles(); };
             var clear = new ToolStripMenuItem("첨부 비우기");
@@ -2293,7 +2608,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.5.0";
+    public const string Version = "1.6.0";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
