@@ -268,18 +268,73 @@ class AppInfo
 // ---------- 글래스모피즘 테마 ----------
 static class Th
 {
-    public static readonly Color Bg1 = ColorTranslator.FromHtml("#e9e4ff");
-    public static readonly Color Bg2 = ColorTranslator.FromHtml("#d9eeff");
-    public static readonly Color Glass = ColorTranslator.FromHtml("#f8f7ff");
     public static readonly Color Card = Color.White;
-    public static readonly Color Body = ColorTranslator.FromHtml("#f4f3fa");
-    public static readonly Color Text = ColorTranslator.FromHtml("#24242e");
-    public static readonly Color Sub = ColorTranslator.FromHtml("#8a879e");
-    public static readonly Color ChipBg = ColorTranslator.FromHtml("#efedf8");
-    public static readonly Color ChipHover = ColorTranslator.FromHtml("#e4e1f3");
-    public static readonly Color ChipText = ColorTranslator.FromHtml("#4a4860");
-    public static readonly Color Accent = ColorTranslator.FromHtml("#6d5bf6");
-    public static readonly Color AccentSoft = ColorTranslator.FromHtml("#e9e5ff");
+    public static Color Bg1, Bg2, Glass, Body, Text, Sub, ChipBg, ChipHover, ChipText, Accent, AccentSoft,
+        Line, Border, Frame, AccentDark, HoverBg, ActiveHover, Mute, BorderHover, NumGray, Faint;
+    public static string Name = "흰색";
+
+    // 테마: 이름, 그리고 Bg1 Bg2 Glass Body Text Sub ChipBg ChipHover ChipText Accent AccentSoft Line Border Frame AccentDark HoverBg ActiveHover Mute BorderHover NumGray Faint
+    public static readonly string[][] Themes = new string[][] {
+        new string[] { "흰색", "eef0f3 e8ebef fafafb f4f5f7 202327 868a92 eff0f2 e4e6ea 40444c 2f343c e8eaee e6e8ec e2e4e8 d9dce1 1f2329 fbfbfc dcdfe4 cfd3d9 c3c8cf b0b4bb a8acb3" },
+        new string[] { "보라", "e9e4ff d9eeff f8f7ff f4f3fa 24242e 8a879e efedf8 e4e1f3 4a4860 6d5bf6 e9e5ff e7e4f5 e3dff4 dcd7f2 5b49ea fbfaff ddd6ff cfcae6 c9c2f3 b3afc8 aaa7bd" },
+        new string[] { "하늘", "e3eeff e4f6ff f6f9ff f2f6fb 1f2733 7e8aa0 ecf2fa e0e8f5 3b4a62 3b82f6 e2edff e3e9f3 dde5f1 d3ddec 2563eb fafcff d2e2fd c8d6ec b9cdf0 a9b6ca a3afc2" },
+        new string[] { "민트", "e2f5ee e5f2fa f6fbf9 f1f6f4 1f2a27 7b8f89 e9f3ef dcebe5 35504a 12a07d dbf3eb e0ece8 d9e7e2 cfdfd9 0e8a6b fafdfc c9ebdf c3d8d1 b3dccf a7b9b3 a0b2ac" },
+        new string[] { "분홍", "fde7ef efe8ff fff8fb faf3f6 2b2228 9a8691 f8ecf1 f0dfe7 5a4350 e2557c fde4ec f1e4ea ecdde4 e5d3dc c9406a fffbfd fbd3e0 e6d0da f3bfd0 c4b2bb bba9b2" }
+    };
+
+    static Th() { Set("흰색"); }
+
+    public static Color[] Snapshot()
+    {
+        return new Color[] { Bg1, Bg2, Glass, Body, Text, Sub, ChipBg, ChipHover, ChipText, Accent, AccentSoft,
+            Line, Border, Frame, AccentDark, HoverBg, ActiveHover, Mute, BorderHover, NumGray, Faint };
+    }
+
+    public static string[] Palette(string name)
+    {
+        foreach (string[] t in Themes) if (t[0] == name) return t[1].Split(' ');
+        return null;
+    }
+
+    public static void Set(string name)
+    {
+        string[] v = Palette(name);
+        if (v == null) return;
+        Name = name;
+        Func<int, Color> c = delegate (int i) { return ColorTranslator.FromHtml("#" + v[i]); };
+        Bg1 = c(0); Bg2 = c(1); Glass = c(2); Body = c(3); Text = c(4); Sub = c(5); ChipBg = c(6); ChipHover = c(7); ChipText = c(8);
+        Accent = c(9); AccentSoft = c(10); Line = c(11); Border = c(12); Frame = c(13); AccentDark = c(14); HoverBg = c(15);
+        ActiveHover = c(16); Mute = c(17); BorderHover = c(18); NumGray = c(19); Faint = c(20);
+    }
+
+    // 이미 만들어진 화면의 색을 새 테마 색으로 바꿈
+    public static void Recolor(Control root, Color[] from, Color[] to)
+    {
+        var map = new Dictionary<int, Color>();
+        for (int i = 0; i < from.Length; i++) if (!map.ContainsKey(from[i].ToArgb())) map[from[i].ToArgb()] = to[i];
+        RecolorCore(root, map);
+    }
+
+    static void RecolorCore(Control c, Dictionary<int, Color> map)
+    {
+        Color n;
+        if (c.BackColor.A == 255 && map.TryGetValue(c.BackColor.ToArgb(), out n)) c.BackColor = n;
+        if (map.TryGetValue(c.ForeColor.ToArgb(), out n)) c.ForeColor = n;
+        foreach (Control k in c.Controls) RecolorCore(k, map);
+        c.Invalidate();
+    }
+
+    // 설정 파일에서 테마 이름만 미리 읽음 (화면 만들기 전에)
+    public static void LoadFrom(string file)
+    {
+        try
+        {
+            if (!File.Exists(file)) return;
+            foreach (string line in File.ReadAllLines(file, Encoding.UTF8))
+                if (line.StartsWith("#theme\t")) Set(line.Substring(7).Trim());
+        }
+        catch { }
+    }
 
     public static GraphicsPath RoundPath(Rectangle r, int rad)
     {
@@ -311,7 +366,7 @@ static class Th
         b.FlatAppearance.BorderSize = 0;
         b.BackColor = primary ? Accent : ChipBg;
         b.ForeColor = primary ? Color.White : ChipText;
-        b.FlatAppearance.MouseOverBackColor = primary ? ColorTranslator.FromHtml("#5b49ea") : ChipHover;
+        b.FlatAppearance.MouseOverBackColor = primary ? Th.AccentDark : ChipHover;
         b.Cursor = Cursors.Hand;
         Round(b, 9);
     }
@@ -385,8 +440,8 @@ class IconBtn : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         Color bg, fg;
-        if (Primary) { bg = hover ? ColorTranslator.FromHtml("#5b49ea") : Th.Accent; fg = Color.White; }
-        else if (Active) { bg = hover ? ColorTranslator.FromHtml("#ddd6ff") : Th.AccentSoft; fg = Th.Accent; }
+        if (Primary) { bg = hover ? Th.AccentDark : Th.Accent; fg = Color.White; }
+        else if (Active) { bg = hover ? Th.ActiveHover : Th.AccentSoft; fg = Th.Accent; }
         else if (Ghost) { bg = down ? Th.ChipHover : hover ? Th.ChipBg : Color.Empty; fg = hover ? Th.Text : Th.ChipText; }
         else { bg = hover ? Th.ChipHover : Th.ChipBg; fg = Th.ChipText; }
         if (Strike && !Active) fg = Th.Sub;
@@ -419,7 +474,7 @@ class IconBtn : Control
 // 둥근 상자(흰 바탕 + 연한 테두리) — 입력칸·목록 바탕
 class RoundBox : Panel
 {
-    public Color Fill = Color.White, Border = ColorTranslator.FromHtml("#e3dff4");
+    public Color Fill = Color.White, Border = Th.Border;
     public int Radius = 12;
     public RoundBox()
     {
@@ -458,7 +513,7 @@ class ChoiceTile : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         Color fill = Selected ? Th.AccentSoft : Color.White;
-        Color border = Selected ? Th.Accent : hover ? ColorTranslator.FromHtml("#c9c2f3") : ColorTranslator.FromHtml("#e3dff4");
+        Color border = Selected ? Th.Accent : hover ? Th.BorderHover : Th.Border;
         using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 12))
         using (var br = new SolidBrush(fill))
         using (var pen = new Pen(border, Selected ? 2f : 1f))
@@ -466,7 +521,7 @@ class ChoiceTile : Control
         // 작은 칸 모양
         int gw = 46, gh = 28, gx = (Width - gw) / 2, gy = 14, gap = 3;
         int cw = (gw - gap * (Cols - 1)) / Cols, ch = (gh - gap * (Rows - 1)) / Rows;
-        using (var br = new SolidBrush(Selected ? Th.Accent : ColorTranslator.FromHtml("#cfcae6")))
+        using (var br = new SolidBrush(Selected ? Th.Accent : Th.Mute))
             for (int r = 0; r < Rows; r++)
                 for (int c = 0; c < Cols; c++)
                     using (GraphicsPath p = Th.RoundPath(new Rectangle(gx + c * (cw + gap), gy + r * (ch + gap), cw, ch), 2))
@@ -475,6 +530,41 @@ class ChoiceTile : Control
         {
             SizeF s = g.MeasureString(Text, Font);
             g.DrawString(Text, Font, br, (Width - s.Width) / 2f, gy + gh + 8);
+        }
+    }
+}
+
+// 테마 색 고르기 타일 (색 동그라미 + 이름)
+class SwatchTile : Control
+{
+    public Color A, B;
+    public bool Selected;
+    bool hover;
+    public SwatchTile()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Cursor = Cursors.Hand;
+        Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 12))
+        using (var br = new SolidBrush(Color.White))
+        using (var pen = new Pen(Selected ? Th.Accent : hover ? Th.BorderHover : Th.Border, Selected ? 2f : 1f))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+        int d = 24, y = (Height - d) / 2;
+        using (var br = new SolidBrush(A)) g.FillEllipse(br, 14, y, d, d);
+        using (var br = new SolidBrush(B)) g.FillPie(br, 14, y, d, d, -45, 180);
+        using (var br = new SolidBrush(Th.Text))
+        {
+            SizeF sz = g.MeasureString(Text, Font);
+            g.DrawString(Text, Font, br, 14 + d + 10, (Height - sz.Height) / 2f + 1);
         }
     }
 }
@@ -504,11 +594,11 @@ class SlotCard : Control
         Color c = Th.Accent;
         try { c = ColorTranslator.FromHtml(App.Color); } catch { }
         using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 14))
-        using (var br = new SolidBrush(hover ? ColorTranslator.FromHtml("#fbfaff") : Color.White))
-        using (var pen = new Pen(hover ? Th.Accent : ColorTranslator.FromHtml("#e6e2f6"), hover ? 1.6f : 1f))
+        using (var br = new SolidBrush(hover ? Th.HoverBg : Color.White))
+        using (var pen = new Pen(hover ? Th.Accent : Th.Border, hover ? 1.6f : 1f))
         { g.FillPath(br, path); g.DrawPath(pen, path); }
         // 칸 번호 (왼쪽 위, 작게)
-        using (var br = new SolidBrush(ColorTranslator.FromHtml("#b3afc8")))
+        using (var br = new SolidBrush(Th.NumGray))
             g.DrawString(Number.ToString(), numFont, br, 12, 9);
         // 앱 첫 글자 동그라미 + 이름 (가운데)
         string nm = App != null ? App.Name : "";
@@ -543,12 +633,12 @@ class SoftColors : ProfessionalColorTable
 {
     public override Color MenuItemSelected { get { return Th.AccentSoft; } }
     public override Color MenuItemBorder { get { return Th.AccentSoft; } }
-    public override Color MenuBorder { get { return ColorTranslator.FromHtml("#dcd7f2"); } }
+    public override Color MenuBorder { get { return Th.Frame; } }
     public override Color ToolStripDropDownBackground { get { return Color.White; } }
     public override Color ImageMarginGradientBegin { get { return Color.White; } }
     public override Color ImageMarginGradientMiddle { get { return Color.White; } }
     public override Color ImageMarginGradientEnd { get { return Color.White; } }
-    public override Color SeparatorDark { get { return ColorTranslator.FromHtml("#ece9f6"); } }
+    public override Color SeparatorDark { get { return Th.Line; } }
     public override Color SeparatorLight { get { return Color.White; } }
     public override Color CheckBackground { get { return Th.AccentSoft; } }
     public override Color CheckSelectedBackground { get { return Th.AccentSoft; } }
@@ -597,12 +687,12 @@ static class Ui
         f.TopMost = true;   // 칸에 붙은 앱 창보다 위에
         f.HandleCreated += delegate
         {
-            int round = 2, border = 0x00F2D7DC;   // 둥근 모서리, 연보라 테두리(BGR)
+            int round = 2, border = Th.Frame.B << 16 | Th.Frame.G << 8 | Th.Frame.R;   // 둥근 모서리, 테마 테두리(BGR)
             try { DwmSetWindowAttribute(f.Handle, 33, ref round, 4); DwmSetWindowAttribute(f.Handle, 34, ref border, 4); } catch { }
         };
         f.Paint += delegate (object o, PaintEventArgs e)
         {
-            using (var pen = new Pen(ColorTranslator.FromHtml("#dcd7f2"))) e.Graphics.DrawRectangle(pen, 0, 0, f.ClientSize.Width - 1, f.ClientSize.Height - 1);
+            using (var pen = new Pen(Th.Frame)) e.Graphics.DrawRectangle(pen, 0, 0, f.ClientSize.Width - 1, f.ClientSize.Height - 1);
         };
 
         var head = new Panel();
@@ -624,7 +714,7 @@ static class Ui
         foot.Dock = DockStyle.Bottom; foot.Height = 72; foot.BackColor = Th.Glass;
         foot.Paint += delegate (object o, PaintEventArgs e)
         {
-            using (var pen = new Pen(ColorTranslator.FromHtml("#ebe8f6"))) e.Graphics.DrawLine(pen, 24, 0, foot.Width - 24, 0);
+            using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 24, 0, foot.Width - 24, 0);
         };
         ok = new IconBtn();
         ok.Primary = true; ok.Glyph = "\uE73E"; ok.Text = okText; ok.Radius = 12;
@@ -899,6 +989,10 @@ class MainForm : Form
         var brand = new Label();
         brand.Text = "RamSpirit"; brand.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold); brand.ForeColor = Th.Text;
         brand.AutoSize = true; brand.BackColor = Th.Glass; brand.Location = new Point(36, 10);
+        brand.Cursor = Cursors.Hand; logo.Cursor = Cursors.Hand;
+        EventHandler home = delegate { if (solo >= 0 && solo < T.Count) ToggleSolo(T[solo]); };
+        brand.Click += home; logo.Click += home;
+        Tip(brand, "처음 화면(칸 나누기)으로 돌아가기");
         bar.Controls.Add(brand);
         var allNew = new IconBtn();
         allNew.Ghost = true; allNew.Glyph = "\uE70F"; allNew.Text = "모두 새 대화";
@@ -940,7 +1034,7 @@ class MainForm : Form
         bar.Controls.Add(verLbl);
         bar.Paint += delegate (object o, PaintEventArgs e)
         {
-            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
+            using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
         };
         bar.Resize += delegate { LayoutBar(); };
         barBtns = new IconBtn[] { allNew, resetBtn, compToggle, setBtn };
@@ -1035,6 +1129,7 @@ class MainForm : Form
             foreach (Target t in T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0"));
             lines.Add("#ratio\t" + JoinNums(colW) + "\t" + JoinNums(rowW));
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
+            lines.Add("#theme\t" + Th.Name);
             File.WriteAllLines(configFile, lines.ToArray(), Encoding.UTF8);
         }
         catch { }
@@ -1137,7 +1232,6 @@ class MainForm : Form
         lbl.Dock = DockStyle.Fill; lbl.Font = font;
         lbl.ForeColor = Th.Text; lbl.TextAlign = ContentAlignment.MiddleLeft; lbl.BackColor = Th.Card;
         lbl.Cursor = Cursors.SizeAll;
-        Tip(lbl, "끌어서 다른 칸과 자리 바꾸기 · 두 번 누르면 크게 보기");
         lbl.DoubleClick += delegate { ToggleSolo(t); };
         lbl.MouseDown += delegate (object s, MouseEventArgs e)
         {
@@ -1168,7 +1262,7 @@ class MainForm : Form
         gap.Dock = DockStyle.Right; gap.Width = 9; gap.BackColor = Th.Card;
         gap.Paint += delegate (object o, PaintEventArgs e)
         {
-            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 4, 5, 4, gap.Height - 5);
+            using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 4, 5, 4, gap.Height - 5);
         };
         var fresh = HeadBtn("\uE70F");
         Tip(fresh, "새 대화");
@@ -1255,7 +1349,7 @@ class MainForm : Form
         Panel body; IconBtn ok, cancel;
         var f = Ui.Shell(firstRun ? "처음 설정" : "설정",
             firstRun ? "한 번만 정해 두면 다음부터는 아이콘만 눌러도 이대로 열려요" : "칸 수와 칸마다 열 앱을 고르세요",
-            660, 620, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
+            660, 716, firstRun ? "이대로 시작" : "저장하고 적용", out body, out ok, out cancel);
 
         // 칸마다 처음 보여 줄 앱 (지금 칸 → 아직 안 쓴 AI 순서)
         var slots = new AppInfo[8];
@@ -1307,7 +1401,33 @@ class MainForm : Form
 
         var grid = new Panel();
         grid.BackColor = Th.Glass;
-        grid.SetBounds(24, 162, 660 - 48, 620 - 84 - 72 - 162 - 12);
+        grid.SetBounds(24, 162, 660 - 48, 290);
+
+        // 테마 색
+        var l3 = new Label();
+        l3.Text = "테마 색"; l3.Font = l1.Font; l3.ForeColor = Th.Text;
+        l3.AutoSize = true; l3.Location = new Point(24, 470); l3.BackColor = Th.Glass;
+        body.Controls.Add(l3);
+        string pickTheme = Th.Name;
+        var swatches = new List<SwatchTile>();
+        int sw = (660 - 48 - 4 * 10) / 5;
+        for (int i = 0; i < Th.Themes.Length; i++)
+        {
+            var st = new SwatchTile();
+            st.Text = Th.Themes[i][0];
+            string[] pv = Th.Themes[i][1].Split(' ');
+            st.A = ColorTranslator.FromHtml("#" + pv[0]); st.B = ColorTranslator.FromHtml("#" + pv[9]);
+            st.Selected = st.Text == pickTheme;
+            st.SetBounds(24 + i * (sw + 10), 498, sw, 52);
+            SwatchTile me = st;
+            st.Click += delegate
+            {
+                pickTheme = me.Text;
+                foreach (SwatchTile x in swatches) { x.Selected = x == me; x.Invalidate(); }
+            };
+            swatches.Add(st);
+            body.Controls.Add(st);
+        }
         body.Controls.Add(grid);
 
         Action rebuild = null;
@@ -1360,9 +1480,22 @@ class MainForm : Form
         f.KeyDown += delegate (object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { chosen = true; f.DialogResult = DialogResult.OK; f.Close(); } };
         f.ShowDialog(this);
         if (!chosen) return null;
+        if (pickTheme != Th.Name) SetTheme(pickTheme);
         var result = new List<AppInfo>();
         for (int i = 0; i < count; i++) result.Add(slots[i]);
         return result;
+    }
+
+    // 테마를 바꾸면 지금 화면 색도 바로 바뀜
+    void SetTheme(string name)
+    {
+        Color[] old = Th.Snapshot();
+        Th.Set(name);
+        Th.Recolor(this, old, Th.Snapshot());
+        BackColor = Th.Bg1;
+        foreach (Target t in T) PaintToggle(t);
+        area.Invalidate(true);
+        SaveConfig();
     }
 
     // 고른 구성대로 칸을 맞춤 (같은 앱인 칸은 그대로 두고 바뀐 칸만 다시 엶)
@@ -1949,7 +2082,7 @@ class MainForm : Form
         comp.Dock = DockStyle.Bottom; comp.Height = 64; comp.BackColor = Th.Glass;
         comp.Paint += delegate (object o, PaintEventArgs e)
         {
-            using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 0, 0, comp.Width, 0);
+            using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, 0, 0, comp.Width, 0);
         };
         var box = new Panel();
         box.BackColor = Th.Card;
@@ -1959,7 +2092,7 @@ class MainForm : Form
         q.BackColor = Th.Card; q.ForeColor = Th.Text;
         // 비어 있을 때 보이는 안내 글자
         qHint = new Label();
-        qHint.Text = "여기에 쓰면 종이비행기가 켜진 칸에 한 번에 보내요"; qHint.Font = q.Font; qHint.ForeColor = ColorTranslator.FromHtml("#aaa7bd");
+        qHint.Text = "여기에 쓰면 종이비행기가 켜진 칸에 한 번에 보내요"; qHint.Font = q.Font; qHint.ForeColor = Th.Faint;
         qHint.BackColor = Th.Card; qHint.Cursor = Cursors.IBeam;
         qHint.Click += delegate { q.Focus(); };
         q.TextChanged += delegate { qHint.Visible = q.Text.Length == 0; };
@@ -2831,7 +2964,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.7.5";
+    public const string Version = "1.8.0";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -2965,6 +3098,7 @@ public static class Program
         Updater.CleanupOld();
         try { W.SetProcessDPIAware(); } catch { }
         Application.EnableVisualStyles();
+        Th.LoadFrom(Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit"), "apps.txt"));
         MainForm form;
         try { form = new MainForm(); }
         catch (Exception ex)
