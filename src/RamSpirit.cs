@@ -1248,6 +1248,7 @@ class Target
     public bool Hidden, Web, Pending;
     public DateTime CheckAt;
     public bool WantNewChat;
+    public bool Lent;      // 이 앱 창을 다른 탭이 빌려 감 (그 탭에서 쓰는 중)
     public bool TooSmall;  // 창이 작아서 이 앱이 칸에 안 들어감 → 잠시 숨김
     public bool Lost;      // 칸 안의 앱이 닫힘
     public int Missing;    // 연속으로 안 보인 횟수
@@ -1790,7 +1791,7 @@ class MainForm : Form
             released.Add(t.Hwnd.ToInt64());
             t.Hwnd = IntPtr.Zero;
         }
-        t.Pending = false; t.Hidden = false; t.Web = false; t.TooSmall = false;
+        t.Pending = false; t.Hidden = false; t.Web = false; t.TooSmall = false; t.Lent = false;
     }
 
     // ---------- 설정 창 ----------
@@ -2074,13 +2075,14 @@ class MainForm : Form
             foreach (AppInfo a in w.Apps) list.Add(AddTarget(a));
             foreach (Target t in list) ClaimFromOtherTabs(t);
             list.RemoveAll(delegate (Target t) { return t.Hwnd != IntPtr.Zero; });
+            foreach (Target t in list) t.Lent = false;
             DoLayout();
             if (list.Count > 0) StartSearch(list);
         }
         else
         {
-            foreach (Target t in T) ClaimFromOtherTabs(t);
             DoLayout();
+            ClaimAll(new List<Target>(T));
         }
         foreach (Target t in T) { t.Rgn = ""; }
         SyncWindows();
@@ -2091,28 +2093,51 @@ class MainForm : Form
 
     // 같은 앱(Claude·ChatGPT처럼 창이 하나뿐인 앱)이 다른 탭에도 들어 있으면 그 창을 지금 탭으로 데려옴
     // → 두 탭이 한 창을 서로 끌어당기지 않음. 원래 탭으로 돌아가면 다시 그쪽으로 감
-    void ClaimFromOtherTabs(Target t)
+    bool ClaimFromOtherTabs(Target t)
     {
-        if (t.Hwnd != IntPtr.Zero) return;
+        if (t.Hwnd != IntPtr.Zero) return true;
         foreach (Workspace w in spaces)
         {
-            if (w == cur) continue;
+            if (w.T == T) continue;
             foreach (Target o in w.T)
             {
                 if (o.Hwnd == IntPtr.Zero || o.Web || !o.App.SameAs(t.App)) continue;
                 if (!W.IsWindow(o.Hwnd)) continue;
-                t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = false;
-                t.Hidden = true; t.Pending = false; t.Lost = false; t.Missing = 0; t.Misfit = 0;
-                t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false;
-                t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
-                o.Hwnd = IntPtr.Zero; o.Hidden = false; o.Pending = false; o.TooSmall = false;
-                if (o.Guard != null) { o.Guard.Dispose(); o.Guard = null; }
-                o.Wait.Text = o.App.Name + "은(는) 「" + cur.Name + "」 탭에서 쓰는 중이에요\n이 탭으로 돌아오면 다시 여기로 와요";
-                o.Wait.Visible = true;
-                Log(t.App.Name + " 창을 「" + w.Name + "」 탭에서 「" + cur.Name + "」 탭으로 옮김");
-                return;
+                HandOver(o, t, cur != null ? cur.Name : "");
+                Log(t.App.Name + " 창을 「" + w.Name + "」 탭에서 지금 탭으로 옮김");
+                return true;
             }
         }
+        return false;
+    }
+
+    // 앱 창을 칸 o에서 칸 t로 넘김 (o는 「다른 탭에서 쓰는 중」으로)
+    void HandOver(Target o, Target t, string toTab)
+    {
+        if (!T.Contains(t)) { W.ShowWindowAsync(o.Hwnd, 0); }
+        t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = false;
+        t.Hidden = true; t.Pending = false; t.Lost = false; t.Lent = false; t.Missing = 0; t.Misfit = 0;
+        t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false; t.MinW = 0; t.MinH = 0;
+        t.WantNewChat = false;
+        t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
+        o.Hwnd = IntPtr.Zero; o.Hidden = false; o.Pending = false; o.TooSmall = false; o.Lent = true; o.WantNewChat = false;
+        if (o.Guard != null) { o.Guard.Dispose(); o.Guard = null; }
+        o.Wait.Text = o.App.Name + "은(는) 「" + toTab + "」 탭에서 쓰는 중이에요\n이 탭으로 돌아오면 다시 여기로 와요";
+        o.Wait.Cursor = Cursors.Default;
+        o.Wait.Visible = true;
+    }
+
+    // 지금 탭의 칸들: 다른 탭에 있는 같은 앱 창을 데려오고, 그래도 비어 있는(빌려준 탭이 사라진) 칸은 새로 찾음
+    void ClaimAll(List<Target> list)
+    {
+        var left = new List<Target>();
+        foreach (Target t in list)
+        {
+            if (t.Hwnd != IntPtr.Zero) continue;
+            if (ClaimFromOtherTabs(t)) continue;
+            if (t.Lent) { t.Lent = false; t.Wait.Text = "불러오는 중..."; t.Wait.Visible = true; left.Add(t); }
+        }
+        if (left.Count > 0) StartSearch(left);
     }
 
     void UpdateTabs()
@@ -2183,7 +2208,15 @@ class MainForm : Form
         }
         foreach (Target t in w.T)
         {
-            if (t.Hwnd != IntPtr.Zero) { W.CloseApp(t.Hwnd, t.OldStyle); used.Remove(t.Hwnd.ToInt64()); }
+            if (t.Hwnd != IntPtr.Zero)
+            {
+                // 이 창을 빌려준 다른 탭이 있으면 닫지 않고 돌려줌
+                Target back = null;
+                foreach (Workspace x in spaces)
+                    if (x != w) foreach (Target o in x.T) if (back == null && o.Lent && o.Hwnd == IntPtr.Zero && o.App.SameAs(t.App)) back = o;
+                if (back != null) { W.ShowWindowAsync(t.Hwnd, 0); HandOver(t, back, ""); back.Hidden = true; back.Wait.Visible = false; }
+                else { W.CloseApp(t.Hwnd, t.OldStyle); used.Remove(t.Hwnd.ToInt64()); }
+            }
             area.Controls.Remove(t.Cell); t.Cell.Dispose();
         }
         w.T.Clear();
@@ -2255,6 +2288,9 @@ class MainForm : Form
         if (newCols != oldCols) { colW = new double[0]; rowW = new double[0]; }
         SaveConfig();
         DoLayout();
+        foreach (Target t in toOpen) { t.Lent = false; if (ClaimFromOtherTabs(t)) t.Wait.Visible = false; }
+        toOpen.RemoveAll(delegate (Target t) { return t.Hwnd != IntPtr.Zero; });
+        SyncWindows();
         if (launch && toOpen.Count > 0) StartSearch(toOpen);
     }
 
@@ -2449,7 +2485,9 @@ class MainForm : Form
         ApplyLook(t);
         t.Wait.Text = "불러오는 중...";
         t.Wait.Visible = true;
+        t.Lent = false;
         SaveConfig();
+        if (ClaimFromOtherTabs(t)) { SyncWindows(); return; }
         StartSearch(new List<Target> { t });
     }
 
@@ -3811,7 +3849,7 @@ class MainForm : Form
         var procs = new Dictionary<long, string>();
         foreach (Target t in AllTargets())
         {
-            if (t.Hwnd != IntPtr.Zero) continue;
+            if (t.Hwnd != IntPtr.Zero || t.Lent) continue;
             anyLeft = true;
             foreach (KeyValuePair<long, string> kv in now)
             {
@@ -4088,7 +4126,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.8";
+    public const string Version = "2.0.9";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
