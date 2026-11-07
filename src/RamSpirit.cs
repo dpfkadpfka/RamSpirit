@@ -867,8 +867,10 @@ class MainForm : Form
         updBtn.Click += delegate
         {
             string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
+            Close();                       // 붙어 있던 앱들을 먼저 정리하고
+            Program.ReleaseLock();
             try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
-            Close();
+            Environment.Exit(0);
         };
         bar.Controls.Add(updBtn);
         verLbl = new Label();
@@ -2061,6 +2063,24 @@ class MainForm : Form
     // 앱 안의 「새 채팅」 버튼을 찾아 누름(일꾼 스레드). 웹 창은 못 찾으면 창을 새로 열어서 새 대화로
     void NewChat(Target t) { NewChat(t, false); }
 
+    // 새 대화 버튼을 누른 뒤 그 앱이 대화상자(예: Claude 「로컬 세션용 폴더 선택」)를 띄우면 닫음
+    void CloseSurprise(IntPtr h, Dictionary<long, string> before0, string name)
+    {
+        string proc = W.ProcessOf(h);
+        for (int i = 0; i < 12; i++)
+        {
+            System.Threading.Thread.Sleep(250);
+            foreach (KeyValuePair<long, string> kv in W.All())
+            {
+                if (before0.ContainsKey(kv.Key)) continue;
+                IntPtr d = new IntPtr(kv.Key);
+                if (W.ClassOf(d) != "#32770" || W.ProcessOf(d) != proc) continue;
+                W.PostMessage(d, 0x0010, IntPtr.Zero, IntPtr.Zero);   // 닫기(취소)
+                return;
+            }
+        }
+    }
+
     static void keyCombo(byte vk)
     {
         W.keybd_event(0x11, 0, 0, UIntPtr.Zero);
@@ -2078,7 +2098,9 @@ class MainForm : Form
         RunBackground(delegate
         {
 #if !NO_UIA
+            var popsBefore = W.All();
             done = Uia.ClickByName(h, NewChatNames);
+            if (done) CloseSurprise(h, popsBefore, quiet ? null : t.App.Name);
             if (!done && !t.Web)
             {
                 // 설정 화면 같은 게 열려 있으면 새 채팅 버튼이 안 보임 → Esc로 닫고 다시 찾기
@@ -2608,7 +2630,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.6.0";
+    public const string Version = "1.6.1";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -2692,7 +2714,7 @@ static class Updater
     }
 }
 
-static class Program
+public static class Program
 {
     [STAThread]
     static void Main()
@@ -2700,20 +2722,25 @@ static class Program
         // 「다시 시작」으로 켜졌으면 이전 RamSpirit가 완전히 꺼질 때까지 기다림
         string[] args = Environment.GetCommandLineArgs();
         bool restart = false;
+        int oldPid = 0;
         for (int i = 0; i + 1 < args.Length; i++)
         {
             if (args[i] != "--wait") continue;
             restart = true;
-            try { Process.GetProcessById(int.Parse(args[i + 1])).WaitForExit(20000); } catch { }
+            int.TryParse(args[i + 1], out oldPid);
+            try { Process.GetProcessById(oldPid).WaitForExit(8000); } catch { }
         }
         // 이미 켜져 있으면 하나만
         bool first;
         var mutex = new System.Threading.Mutex(true, "RamSpirit_SingleInstance", out first);
         if (!first && restart)
         {
+            // 이전 RamSpirit가 아직 안 꺼졌으면 끝내고 넘겨받음
+            try { Process.GetProcessById(oldPid).Kill(); } catch { }
             try { first = mutex.WaitOne(10000); } catch (System.Threading.AbandonedMutexException) { first = true; }
         }
         if (!first) return;
+        Lock = mutex;
         if (Updater.EnsureInstalled()) { mutex.ReleaseMutex(); return; }
         Updater.CleanupOld();
         try { W.SetProcessDPIAware(); } catch { }
@@ -2724,5 +2751,15 @@ static class Program
         AppDomain.CurrentDomain.UnhandledException += delegate { try { form.SafeRelease(); } catch { } };
         Application.Run(form);
         GC.KeepAlive(mutex);
+        ReleaseLock();
+        Environment.Exit(0);   // 남아 있는 작업이 있어도 확실히 끝냄 (다시 시작이 막히지 않게)
+    }
+
+    static System.Threading.Mutex Lock;
+
+    // 「다시 시작」 때 새 RamSpirit가 바로 켜질 수 있게 잠금을 먼저 풂
+    public static void ReleaseLock()
+    {
+        try { if (Lock != null) { Lock.ReleaseMutex(); Lock = null; } } catch { }
     }
 }
