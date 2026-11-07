@@ -937,22 +937,7 @@ class MainForm : Form
 
         area.Resize += delegate { DoLayout(); };
         // 칸 사이 틈(가운데 십자 포함)을 끌어서 칸 크기 조절
-        area.MouseMove += delegate (object o, MouseEventArgs e) { SplitMove(e); };
-        area.MouseDown += delegate (object o, MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Left || solo >= 0) return;
-            dragColAt = HitCol(e.X); dragRowAt = HitRow(e.Y);
-            if (dragColAt >= 0 || dragRowAt >= 0) { dragPt = e.Location; ShowGuides(); }
-        };
-        area.MouseUp += delegate
-        {
-            if (dragColAt < 0 && dragRowAt < 0) return;
-            HideGuides();
-            ApplySplit(dragPt);          // 놓았을 때 한 번만 칸 크기를 바꿈 → 앱 창이 들썩이지 않음
-            dragColAt = -1; dragRowAt = -1;
-            DoLayout();
-            SaveConfig();
-        };
+        SplitForward(area);
         Move += delegate { SyncWindows(); };
         Resize += delegate { SyncWindows(); };
         FormClosing += delegate
@@ -1201,6 +1186,7 @@ class MainForm : Form
         cell.Controls.Add(body);
         cell.Controls.Add(head);
         area.Controls.Add(cell);
+        SplitForward(cell); SplitForward(head); SplitForward(dot);
 
         t.Dot = dot;
         t.Cell = cell; t.Head = head; t.Lbl = lbl; t.Body = body; t.Btn = btn; t.Change = change; t.Wait = wait; t.SendTg = tg; t.Fresh = fresh;
@@ -1638,12 +1624,15 @@ class MainForm : Form
     int[] Lx = new int[0], Lw = new int[0], Ly = new int[0], Lh = new int[0];
     int dragColAt = -1, dragRowAt = -1;
 
+    // 칸 사이 틈 + 양쪽 칸의 가장자리 여백까지 잡히게 (틈이 좁아도 쉽게 잡힘)
+    const int Grab = 7;
+
     int HitCol(int x)
     {
         for (int c = 0; c + 1 < Lx.Length; c++)
         {
             int gx = Lx[c] + Lw[c];
-            if (x >= gx - 3 && x <= gx + Gap + 3) return c;
+            if (x >= gx - Grab && x <= gx + Gap + Grab) return c;
         }
         return -1;
     }
@@ -1653,22 +1642,45 @@ class MainForm : Form
         for (int r = 0; r + 1 < Ly.Length; r++)
         {
             int gy = Ly[r] + Lh[r];
-            if (y >= gy - 3 && y <= gy + Gap + 3) return r;
+            if (y >= gy - Grab && y <= gy + Gap + Grab) return r;
         }
         return -1;
     }
 
-    void SplitMove(MouseEventArgs e)
+    // 바탕·칸 테두리·칸 제목 줄 어디서든 칸 사이 선을 잡을 수 있게 마우스 신호를 넘겨받음
+    void SplitForward(Control c)
     {
-        if (dragColAt < 0 && dragRowAt < 0)
+        Func<Point, Point> toArea = delegate (Point p) { return c == area ? p : area.PointToClient(c.PointToScreen(p)); };
+        c.MouseMove += delegate (object o, MouseEventArgs e)
         {
-            if (solo >= 0) { area.Cursor = Cursors.Default; return; }
-            bool c = HitCol(e.X) >= 0, r = HitRow(e.Y) >= 0;
-            area.Cursor = (c && r) ? Cursors.SizeAll : c ? Cursors.SizeWE : r ? Cursors.SizeNS : Cursors.Default;
-            return;
-        }
-        dragPt = e.Location;
-        MoveGuides();
+            Point p = toArea(e.Location);
+            if (dragColAt < 0 && dragRowAt < 0)
+            {
+                if (solo >= 0) { c.Cursor = Cursors.Default; return; }
+                bool hc = HitCol(p.X) >= 0, hr = HitRow(p.Y) >= 0;
+                c.Cursor = (hc && hr) ? Cursors.SizeAll : hc ? Cursors.SizeWE : hr ? Cursors.SizeNS : Cursors.Default;
+                return;
+            }
+            dragPt = p;
+            MoveGuides();
+        };
+        c.MouseDown += delegate (object o, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || solo >= 0) return;
+            Point p = toArea(e.Location);
+            dragColAt = HitCol(p.X); dragRowAt = HitRow(p.Y);
+            if (dragColAt >= 0 || dragRowAt >= 0) { dragPt = p; ShowGuides(); }
+        };
+        c.MouseUp += delegate
+        {
+            if (dragColAt < 0 && dragRowAt < 0) return;
+            HideGuides();
+            ApplySplit(dragPt);          // 놓았을 때 한 번만 칸 크기를 바꿈 → 앱 창이 들썩이지 않음
+            dragColAt = -1; dragRowAt = -1;
+            foreach (Target t in T) t.Grown = true;   // 직접 정한 크기를 자동으로 되돌리지 않음
+            DoLayout();
+            SaveConfig();
+        };
     }
 
     Point dragPt;
@@ -2174,21 +2186,22 @@ class MainForm : Form
     void NewChat(Target t) { NewChat(t, false); }
 
     // 새 대화 버튼을 누른 뒤 그 앱이 대화상자(예: Claude 「로컬 세션용 폴더 선택」)를 띄우면 닫음
-    void CloseSurprise(IntPtr h, Dictionary<long, string> before0, string name)
+    bool CloseSurprise(IntPtr h, Dictionary<long, string> before0)
     {
         string proc = W.ProcessOf(h);
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 16; i++)
         {
-            System.Threading.Thread.Sleep(250);
+            System.Threading.Thread.Sleep(200);
             foreach (KeyValuePair<long, string> kv in W.All())
             {
                 if (before0.ContainsKey(kv.Key)) continue;
                 IntPtr d = new IntPtr(kv.Key);
                 if (W.ClassOf(d) != "#32770" || W.ProcessOf(d) != proc) continue;
                 W.PostMessage(d, 0x0010, IntPtr.Zero, IntPtr.Zero);   // 닫기(취소)
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     static void keyCombo(byte vk)
@@ -2200,36 +2213,44 @@ class MainForm : Form
         W.keybd_event(0x10, 0, 2, UIntPtr.Zero);
         W.keybd_event(0x11, 0, 2, UIntPtr.Zero);
     }
+    readonly object newChatLock = new object();
+
+    // 새 대화: 칸마다 차례대로 하나씩 (동시에 하면 서로 엉켜서 엉뚱한 곳이 눌림). 마우스는 움직이지 않음.
     void NewChat(Target t, bool quiet)
     {
         if (t.Hwnd == IntPtr.Zero) { if (!quiet) Reopen(t); return; }
         IntPtr h = t.Hwnd;
-        bool done = false;
+        bool done = false, popupClosed = false;
+        string nm = t.App.Name.ToLowerInvariant();
+        bool web = t.Web;
         RunBackground(delegate
         {
-#if !NO_UIA
-            var popsBefore = W.All();
-            done = Uia.ClickByName(h, NewChatNames);
-            if (done) CloseSurprise(h, popsBefore, quiet ? null : t.App.Name);
-            if (!done && !t.Web)
+            lock (newChatLock)
             {
-                // 설정 화면 같은 게 열려 있으면 새 채팅 버튼이 안 보임 → Esc로 닫고 다시 찾기
-                W.ForceForeground(h);
-                System.Threading.Thread.Sleep(150);
-                W.Key(0x1B, false);
-                System.Threading.Thread.Sleep(400);
+#if !NO_UIA
+                // 버튼을 누른 뒤 그 앱이 띄우는 대화상자(예: Claude 「로컬 세션용 폴더 선택」)는 바로 닫음
+                var watcher = new System.Threading.Thread(delegate () { popupClosed = CloseSurprise(h, W.All()); });
+                watcher.IsBackground = true;
+                watcher.Start();
                 done = Uia.ClickByName(h, NewChatNames);
-                string nm = t.App.Name.ToLowerInvariant();
-                if (!done && (nm.Contains("chatgpt") || nm.Contains("gemini")))
+                if (!done && !web && (nm.Contains("chatgpt") || nm.Contains("gemini")))
                 {
-                    // ChatGPT·Gemini 새 채팅 단축키 Ctrl+Shift+O
-                    keyCombo(0x4F);
-                    done = true;
+                    // 버튼을 못 찾으면 새 채팅 단축키(Ctrl+Shift+O) — 그 앱이 정말 앞에 있을 때만
+                    W.ForceForeground(h);
+                    System.Threading.Thread.Sleep(200);
+                    if (W.GetForegroundWindow() == h) { keyCombo(0x4F); done = true; }
                 }
-            }
+                watcher.Join(done ? 3200 : 100);
 #endif
+                System.Threading.Thread.Sleep(150);
+            }
         }, delegate
         {
+            if (popupClosed)
+            {
+                if (!quiet) sendHint.Text = t.App.Name + ": 새 대화 대신 폴더 고르는 창이 떠서 닫았어요 (작업 모드). 그 앱에서 새 채팅을 직접 눌러 주세요.";
+                return;
+            }
             if (done) { if (!quiet) sendHint.Text = t.App.Name + ": 새 대화로 바꿨어요"; return; }
             if (t.Web && t.Hwnd == h)
             {
@@ -2760,10 +2781,12 @@ static class Uia
                     if (e != null && !e.Current.IsOffscreen)
                     {
                         object pat;
-                        if (e.TryGetCurrentPattern(InvokePattern.Pattern, out pat)) { ((InvokePattern)pat).Invoke(); return true; }
-                        System.Windows.Rect r = e.Current.BoundingRectangle;
-                        W.ForceForeground(h);
-                        W.Click((int)(r.X + r.Width / 2), (int)(r.Y + r.Height / 2));
+                        if (!e.TryGetCurrentPattern(InvokePattern.Pattern, out pat)) return false;
+                        var inv = (InvokePattern)pat;
+                        var th = new System.Threading.Thread(delegate () { try { inv.Invoke(); } catch { } });
+                        th.IsBackground = true;
+                        th.Start();
+                        th.Join(2500);
                         return true;
                     }
                     System.Threading.Thread.Sleep(400);
@@ -2779,7 +2802,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.7.2";
+    public const string Version = "1.7.4";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
