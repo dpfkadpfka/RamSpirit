@@ -190,7 +190,7 @@ static class W
 
     public static void Place(IntPtr h, int x, int y, int w, int hh)
     {
-        SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | NOACT | 0x4000);   // ASYNC: 상대 앱이 바빠도 안 기다림
+        SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | NOACT | 0x4000 | 0x0400);   // ASYNC: 상대 앱이 바빠도 안 기다림 · NOSENDCHANGING: 앱이 정한 최소 크기에 막히지 않고 칸 크기 그대로
     }
 
     public static void Detach(IntPtr h, int oldStyle, int x, int y, int w, int hh)
@@ -2514,18 +2514,23 @@ class MainForm : Form
             dragColAt = HitCol(p.X); dragRowAt = HitRow(p.Y);
             if (dragColAt >= 0 || dragRowAt >= 0) { dragPt = p; ShowGuides(); }
         };
-        c.MouseUp += delegate
-        {
-            if (dragColAt < 0 && dragRowAt < 0) return;
+        c.MouseUp += delegate { EndDrag(); };
+    }
+
+    // 끌기를 끝냄 (마우스를 놓은 신호를 놓쳐도 타이머가 대신 끝냄 → 선이 화면에 남거나 칸이 안 움직이는 일 없게)
+    void EndDrag()
+    {
+            if (dragTimer != null) dragTimer.Stop();
+            if (dragColAt < 0 && dragRowAt < 0) { HideGuides(); return; }
             HideGuides();
             ApplySplit(dragPt);          // 놓았을 때 한 번만 칸 크기를 바꿈 → 앱 창이 들썩이지 않음
             dragColAt = -1; dragRowAt = -1;
             foreach (Target t in T) t.Grown = true;   // 직접 정한 크기를 자동으로 되돌리지 않음
             DoLayout();
             SaveConfig();
-        };
     }
 
+    Timer dragTimer;
     Point dragPt;
     GuideLine guideV, guideH;
 
@@ -2571,6 +2576,18 @@ class MainForm : Form
         MoveGuides();
         if (dragColAt >= 0) guideV.Show();
         if (dragRowAt >= 0) guideH.Show();
+        if (dragTimer == null)
+        {
+            dragTimer = new Timer();
+            dragTimer.Interval = 30;
+            dragTimer.Tick += delegate
+            {
+                if (dragColAt < 0 && dragRowAt < 0) { dragTimer.Stop(); HideGuides(); return; }
+                dragPt = area.PointToClient(Cursor.Position);
+                if ((Control.MouseButtons & MouseButtons.Left) == 0) EndDrag(); else MoveGuides();
+            };
+        }
+        dragTimer.Start();
     }
 
     void MoveGuides()
@@ -2819,6 +2836,7 @@ class MainForm : Form
     void ToggleSolo(Target t)
     {
         int i = T.IndexOf(t);
+        dragColAt = -1; dragRowAt = -1; HideGuides();
         solo = (solo == i) ? -1 : i;
         DoLayout();
     }
@@ -4033,7 +4051,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.4";
+    public const string Version = "2.0.5";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
