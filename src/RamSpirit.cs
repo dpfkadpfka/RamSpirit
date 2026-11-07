@@ -412,6 +412,61 @@ class IconBtn : Control
     }
 }
 
+// 앱을 켜서 칸에 넣는 동안 잠깐 화면을 덮는 가림막 (앱 창이 커졌다 작아지는 모습이 안 보이게)
+class LoadCover : Form
+{
+    public string Status = "";
+    Image logo;
+
+    public LoadCover()
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Th.Bg1;
+        DoubleBuffered = true;
+        try { logo = Icon.ExtractAssociatedIcon(Application.ExecutablePath).ToBitmap(); } catch { }
+    }
+
+    protected override bool ShowWithoutActivation { get { return true; } }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= 0x08000000 | 0x00000080;   // 눌러도 앞으로 안 오고(NOACTIVATE), 작업 전환 목록에 안 보임(TOOLWINDOW)
+            return cp;
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        Rectangle r = ClientRectangle;
+        if (r.Width <= 0 || r.Height <= 0) return;
+        using (var br = new LinearGradientBrush(r, Th.Bg1, Th.Bg2, LinearGradientMode.ForwardDiagonal)) g.FillRectangle(br, r);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        int cx = r.Width / 2, cy = r.Height / 2;
+        if (logo != null) g.DrawImage(logo, cx - 28, cy - 92, 56, 56);
+        using (var f = new Font("Malgun Gothic", 15f, FontStyle.Bold))
+        using (var br = new SolidBrush(Th.Text))
+        {
+            string t = "앱을 칸에 넣고 있어요";
+            SizeF s = g.MeasureString(t, f);
+            g.DrawString(t, f, br, cx - s.Width / 2, cy - 18);
+        }
+        using (var f = new Font("Malgun Gothic", 10.5f))
+        using (var br = new SolidBrush(Th.Sub))
+        {
+            SizeF s = g.MeasureString(Status, f);
+            g.DrawString(Status, f, br, cx - s.Width / 2, cy + 22);
+        }
+    }
+}
+
 class Target
 {
     public AppInfo App;
@@ -541,23 +596,24 @@ class MainForm : Form
         var allNew = new IconBtn();
         allNew.Glyph = "\uE70F"; allNew.Text = "모두 새 대화";
         allNew.Click += delegate { foreach (Target x in T.ToArray()) if (x.Cell.Visible) NewChat(x); };
-        tip.SetToolTip(allNew, "보이는 칸을 모두 새 대화로 바꿔요");
+        Tip(allNew, "보이는 칸을 모두 새 대화로 바꿔요");
         bar.Controls.Add(allNew);
         var resetBtn = new IconBtn();
         resetBtn.Glyph = "\uE8A9"; resetBtn.Text = "칸 크기 같게";
         resetBtn.Click += delegate { ResetRatio(); };
-        tip.SetToolTip(resetBtn, "끌어서 바꾼 칸 크기를 모두 똑같이 되돌려요");
+        Tip(resetBtn, "끌어서 바꾼 칸 크기를 모두 똑같이 되돌려요");
         bar.Controls.Add(resetBtn);
         var setBtn = new IconBtn();
         setBtn.Glyph = "\uE713"; setBtn.Text = "설정";
         setBtn.Click += delegate { OpenSettings(); };
-        tip.SetToolTip(setBtn, "칸 수와 칸마다 열 앱 고르기");
+        Tip(setBtn, "칸 수와 칸마다 열 앱 고르기");
         bar.Controls.Add(setBtn);
         updBtn = new IconBtn();
         updBtn.Primary = true; updBtn.Glyph = "\uE896"; updBtn.Visible = false;
         updBtn.Click += delegate
         {
-            try { Process.Start(Application.ExecutablePath); } catch { }
+            string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
+            try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
             Close();
         };
         bar.Controls.Add(updBtn);
@@ -762,7 +818,7 @@ class MainForm : Form
         lbl.Dock = DockStyle.Fill; lbl.Font = font;
         lbl.ForeColor = Th.Text; lbl.TextAlign = ContentAlignment.MiddleLeft; lbl.BackColor = Th.Card;
         lbl.Cursor = Cursors.SizeAll;
-        tip.SetToolTip(lbl, "끌어서 다른 칸과 자리 바꾸기 · 두 번 누르면 크게 보기");
+        Tip(lbl, "끌어서 다른 칸과 자리 바꾸기 · 두 번 누르면 크게 보기");
         lbl.DoubleClick += delegate { ToggleSolo(t); };
         lbl.MouseDown += delegate (object s, MouseEventArgs e)
         {
@@ -796,10 +852,10 @@ class MainForm : Form
             using (var pen = new Pen(ColorTranslator.FromHtml("#e7e4f5"))) e.Graphics.DrawLine(pen, 6, 6, 6, gap.Height - 6);
         };
         var fresh = HeadBtn("\uE70F");
-        tip.SetToolTip(fresh, "새 대화");
+        Tip(fresh, "새 대화");
         fresh.Click += delegate { NewChat(t); };
         var change = HeadBtn("\uE8AB");
-        tip.SetToolTip(change, "앱 바꾸기");
+        Tip(change, "앱 바꾸기");
         change.Click += delegate { ShowAppMenu(t); };
         var btn = HeadBtn("\uE740");
         btn.Click += delegate { ToggleSolo(t); };
@@ -1189,7 +1245,7 @@ class MainForm : Form
                 t.Cell.Visible = true;
             }
             t.Btn.Glyph = (solo == i) ? "\uE73F" : "\uE740";
-            tip.SetToolTip(t.Btn, (solo == i) ? "원래 칸 나누기로 돌아가기" : "이 칸만 크게 보기");
+            Tip(t.Btn, (solo == i) ? "원래 칸 나누기로 돌아가기" : "이 칸만 크게 보기");
             t.Btn.Invalidate();
         }
         SyncWindows();
@@ -1352,8 +1408,8 @@ class MainForm : Form
         compOpen = open;
         foreach (Control c in comp.Controls) if (c != compToggle) c.Visible = open;
         compToggle.Glyph = open ? "\uE70D" : "\uE70E";
-        compToggle.Text = open ? "입력창 접기" : "모두에게 보내기 열기";
-        tip.SetToolTip(compToggle, open ? "아래 입력창을 접어서 칸을 더 크게 봐요" : "모든 칸에 보내는 입력창을 다시 열어요");
+        compToggle.Text = open ? "입력창 접기" : "한 번에 보내기 열기";
+        Tip(compToggle, open ? "아래 입력창을 접어서 칸을 더 크게 봐요" : "여러 칸에 한 번에 보내는 입력창을 다시 열어요");
         comp.Height = open ? 96 : 36;
         comp.PerformLayout();
         int w = comp.ClientSize.Width, tw = compToggle.Need();
@@ -1370,7 +1426,7 @@ class MainForm : Form
         t.SendTg.Active = t.SendOn;
         t.SendTg.Strike = !t.SendOn;
         t.SendTg.Invalidate();
-        tip.SetToolTip(t.SendTg, t.SendOn ? "「모두에게 보내기」가 이 칸에도 들어가요 (누르면 끔)" : "이 칸에는 보내지 않아요 (누르면 켬)");
+        Tip(t.SendTg, t.SendOn ? "보내기 켜짐 — 아래 입력창에 쓴 글이 이 칸에도 들어가요 (누르면 끔)" : "보내기 꺼짐 — 이 칸에는 보내지 않아요 (누르면 켬)");
     }
 
     readonly List<string> attach = new List<string>();   // 함께 보낼 파일
@@ -1446,7 +1502,7 @@ class MainForm : Form
         q.BackColor = Th.Card; q.ForeColor = Th.Text;
         // 비어 있을 때 보이는 안내 글자
         qHint = new Label();
-        qHint.Text = "모든 칸에 보낼 메시지를 입력하세요"; qHint.Font = q.Font; qHint.ForeColor = ColorTranslator.FromHtml("#aaa7bd");
+        qHint.Text = "여기에 쓰면 종이비행기가 켜진 칸에 한 번에 보내요"; qHint.Font = q.Font; qHint.ForeColor = ColorTranslator.FromHtml("#aaa7bd");
         qHint.BackColor = Th.Card; qHint.Cursor = Cursors.IBeam;
         qHint.Click += delegate { q.Focus(); };
         q.TextChanged += delegate { qHint.Visible = q.Text.Length == 0; };
@@ -1454,14 +1510,14 @@ class MainForm : Form
         box.Controls.Add(qHint);
         qHint.BringToFront();
         sendBtn = new IconBtn();
-        sendBtn.Primary = true; sendBtn.Glyph = "\uE724"; sendBtn.Text = "모두에게 보내기"; sendBtn.Radius = 14;
+        sendBtn.Primary = true; sendBtn.Glyph = "\uE724"; sendBtn.Text = "한 번에 보내기"; sendBtn.Radius = 14;
         sendBtn.Font = new Font("Malgun Gothic", 10.5f, FontStyle.Bold);
         sendHint = new Label();
         sendHint.Font = btnFont; sendHint.ForeColor = Th.Sub; sendHint.TextAlign = ContentAlignment.MiddleLeft;
         fileBtn = new IconBtn();
         fileBtn.Glyph = "\uE723"; fileBtn.Text = "파일"; fileBtn.Radius = 14;
         fileBtn.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold);
-        tip.SetToolTip(fileBtn, "모든 칸에 함께 보낼 파일 넣기 (입력창에 끌어다 놓아도 돼요)");
+        Tip(fileBtn, "모든 칸에 함께 보낼 파일 넣기 (입력창에 끌어다 놓아도 돼요)");
         fileBtn.Click += delegate { FileButtonClick(); };
         comp.Controls.Add(box); comp.Controls.Add(fileBtn); comp.Controls.Add(sendBtn); comp.Controls.Add(sendHint);
         // 파일을 입력창에 끌어다 놓으면 첨부
@@ -1510,6 +1566,45 @@ class MainForm : Form
     IconBtn[] barBtns;
     Label verLbl;
     readonly ToolTip tip = new ToolTip();
+    readonly Dictionary<Control, string> tipText = new Dictionary<Control, string>();
+    Control tipOn;
+    Timer tipTimer;
+
+    // 마우스를 올리면 설명을 아이콘 "위쪽"에 띄움 (아래에 뜨면 마우스 화살표에 가려서)
+    void Tip(Control c, string text)
+    {
+        bool hooked = tipText.ContainsKey(c);
+        tipText[c] = text;
+        if (tipOn == c) ShowTip();
+        if (hooked) return;
+        c.MouseEnter += delegate
+        {
+            tipOn = c;
+            if (tipTimer == null)
+            {
+                tipTimer = new Timer();
+                tipTimer.Interval = 350;
+                tipTimer.Tick += delegate { tipTimer.Stop(); ShowTip(); };
+            }
+            tipTimer.Stop(); tipTimer.Start();
+        };
+        c.MouseLeave += delegate
+        {
+            if (tipTimer != null) tipTimer.Stop();
+            if (tipOn == c) { tip.Hide(c); tipOn = null; }
+        };
+        c.MouseDown += delegate { if (tipTimer != null) tipTimer.Stop(); tip.Hide(c); };
+    }
+
+    void ShowTip()
+    {
+        Control c = tipOn;
+        string text;
+        if (c == null || !c.IsHandleCreated || !tipText.TryGetValue(c, out text)) return;
+        Size sz = TextRenderer.MeasureText(text, SystemFonts.StatusFont);
+        int x = Math.Max(-c.Left, (c.Width - sz.Width - 10) / 2);
+        tip.Show(text, c, x, -(sz.Height + 14), 4000);
+    }
 
     void LayoutBar()
     {
@@ -1537,7 +1632,7 @@ class MainForm : Form
             if (got == null) return;
             updBtn.Text = "새 버전 v" + got + " 준비됨 · 다시 시작";
             updBtn.Visible = true;
-            tip.SetToolTip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
+            Tip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
             LayoutBar();
         });
     }
@@ -1888,8 +1983,51 @@ class MainForm : Form
         return false;
     }
 
+    LoadCover cover;
+    DateTime coverUntil, coverReadyAt;
+
+    void ShowCover()
+    {
+        if (WindowState == FormWindowState.Minimized || !Visible) return;
+        if (cover == null || cover.IsDisposed) cover = new LoadCover();
+        Rectangle b = RectangleToScreen(ClientRectangle);
+        cover.Bounds = b;
+        coverUntil = DateTime.Now.AddSeconds(20);   // 무슨 일이 있어도 20초 뒤엔 걷음
+        coverReadyAt = DateTime.MinValue;
+        UpdateCover();
+        if (!cover.Visible) cover.Show();
+    }
+
+    void UpdateCover()
+    {
+        if (cover == null || cover.IsDisposed || !cover.Visible && coverUntil < DateTime.Now) return;
+        var parts = new List<string>();
+        foreach (Target t in T) parts.Add(t.App.Name + (t.Hwnd != IntPtr.Zero ? " ✓" : " …"));
+        string st = string.Join("   ", parts.ToArray());
+        if (st != cover.Status) { cover.Status = st; cover.Invalidate(); }
+    }
+
+    void HideCover()
+    {
+        if (cover != null && !cover.IsDisposed && cover.Visible) cover.Hide();
+    }
+
+    // 모든 칸에 앱이 붙고 크기·제목 줄 정리까지 끝나면 가림막을 걷음
+    void CheckCover()
+    {
+        if (cover == null || cover.IsDisposed || !cover.Visible) return;
+        UpdateCover();
+        if (DateTime.Now > coverUntil) { HideCover(); return; }
+        bool all = true;
+        foreach (Target t in T) if (t.Cell.Visible && (t.Hwnd == IntPtr.Zero || t.Pending)) all = false;
+        if (!all) { coverReadyAt = DateTime.MinValue; return; }
+        if (coverReadyAt == DateTime.MinValue) coverReadyAt = DateTime.Now.AddMilliseconds(1300);
+        else if (DateTime.Now >= coverReadyAt) { SyncWindows(); HideCover(); }
+    }
+
     void StartSearch(List<Target> list)
     {
+        if (list.Count > 0) ShowCover();
         before = W.All();
         foreach (Target t in list)
         {
@@ -1986,10 +2124,13 @@ class MainForm : Form
             }
         }
 
+        CheckCover();
         bool anyPending = false;
         foreach (Target t in T) if (t.Pending || (t.WantNewChat && t.Hwnd != IntPtr.Zero)) anyPending = true;
         if ((!anyLeft && !anyPending) || sec > 40)
         {
+            if (cover != null && cover.Visible && coverReadyAt != DateTime.MinValue && DateTime.Now < coverReadyAt) return;   // 가림막 걷을 때까지 조금 더
+            HideCover();
             timer.Stop();
             foreach (Target t in T)
                 if (t.Hwnd == IntPtr.Zero) { t.Wait.Text = t.App.Name + " 창을 찾지 못했어요\n「바꾸기」에서 다시 골라 보세요"; t.Wait.Visible = true; }
@@ -2152,7 +2293,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.4.1";
+    public const string Version = "1.5.0";
     const string Repo = "dpfkadpfka/ramspirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
@@ -2241,9 +2382,22 @@ static class Program
     [STAThread]
     static void Main()
     {
+        // 「다시 시작」으로 켜졌으면 이전 RamSpirit가 완전히 꺼질 때까지 기다림
+        string[] args = Environment.GetCommandLineArgs();
+        bool restart = false;
+        for (int i = 0; i + 1 < args.Length; i++)
+        {
+            if (args[i] != "--wait") continue;
+            restart = true;
+            try { Process.GetProcessById(int.Parse(args[i + 1])).WaitForExit(20000); } catch { }
+        }
         // 이미 켜져 있으면 하나만
         bool first;
         var mutex = new System.Threading.Mutex(true, "RamSpirit_SingleInstance", out first);
+        if (!first && restart)
+        {
+            try { first = mutex.WaitOne(10000); } catch (System.Threading.AbandonedMutexException) { first = true; }
+        }
         if (!first) return;
         if (Updater.EnsureInstalled()) { mutex.ReleaseMutex(); return; }
         Updater.CleanupOld();
