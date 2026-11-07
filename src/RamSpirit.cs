@@ -1013,12 +1013,37 @@ static class Ui
 // 앱 창의 닫기 버튼 등을 덮는 작은 가림판 (눌러도 아무 일 없음)
 class GuardForm : Form
 {
+    Bitmap strip;
     public GuardForm()
     {
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         BackColor = Color.White;
+        DoubleBuffered = true;
+    }
+
+    // 가림판 바로 왼쪽의 좁은 세로 띠(3px)를 화면에서 떠 와서, 가림판 전체로 늘려 그림 → 제목 줄과 자연스럽게 이어짐
+    public void Stamp(Rectangle r)
+    {
+        try
+        {
+            var b = new Bitmap(3, Math.Max(1, r.Height));
+            using (Graphics g = Graphics.FromImage(b))
+                g.CopyFromScreen(r.X - 7, r.Y, 0, 0, b.Size);
+            if (strip != null) strip.Dispose();
+            strip = b;
+            Invalidate();
+        }
+        catch { }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        if (strip == null) { base.OnPaint(e); return; }
+        e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+        e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+        e.Graphics.DrawImage(strip, new Rectangle(0, 0, Width, Height), new Rectangle(1, 0, 1, strip.Height), GraphicsUnit.Pixel);
     }
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams
@@ -2471,6 +2496,7 @@ class MainForm : Form
         t.GuardColor = SampleLeftOf(r, t.GuardColor);
         t.Guard.BackColor = t.GuardColor;
         t.Guard.Bounds = r;
+        ((GuardForm)t.Guard).Stamp(r);
         if (!t.Guard.Visible) t.Guard.Show();
         // 앱 창을 가림판 바로 아래로 (다른 프로그램과의 앞뒤 순서는 건드리지 않음)
         W.SetWindowPos(t.Hwnd, t.Guard.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
@@ -2498,6 +2524,7 @@ class MainForm : Form
                     {
                         Color c = SampleLeftOf(t.Guard.Bounds, t.GuardColor);
                         if (c != t.GuardColor) { t.GuardColor = c; t.Guard.BackColor = c; }
+                        ((GuardForm)t.Guard).Stamp(t.Guard.Bounds);
                     }
             };
         }
@@ -3713,7 +3740,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "1.9.7";
+    public const string Version = "1.9.8";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
