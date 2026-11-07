@@ -693,9 +693,6 @@ static class JumpList
         list.BeginList(out slots, ref iid, out removed);
         var tasks = (IObjectCollection)Create("2d3468c1-36a7-43b6-ac24-d3f02fd9607a");
         tasks.AddObject(Task(exe, "업데이트 확인", "--cmd update", 0));
-        tasks.AddObject(Task(exe, "칸 나누기 화면으로", "--cmd home", 0));
-        tasks.AddObject(Task(exe, "모두 새 대화", "--cmd newchat", 0));
-        tasks.AddObject(Task(exe, "설정", "--cmd settings", 0));
         list.AddUserTasks((IObjectArray)tasks);
         list.CommitList();
     }
@@ -3998,7 +3995,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.0";
+    public const string Version = "2.0.1";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
