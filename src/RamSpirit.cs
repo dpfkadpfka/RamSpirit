@@ -2711,6 +2711,9 @@ class MainForm : Form
     // 앱 창의 닫기·최소화·최대화 버튼 위에 작은 가림판을 덮어 눌리지 않게 (실수로 앱이 꺼지지 않게)
     void PlaceGuard(Target t)
     {
+        // 닫기 버튼 가림판은 쓰지 않음 (2.0.7부터)
+        if (t.Guard != null) { t.Guard.Hide(); t.Guard.Dispose(); t.Guard = null; }
+        return;
         if (t.CapBtns.IsEmpty || t.Hwnd == IntPtr.Zero) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (t.Hidden || !t.Cell.Visible) { if (t.Guard != null) t.Guard.Hide(); return; }
         if (WindowState == FormWindowState.Minimized || !Visible || !W.IsWindowVisible(t.Hwnd) || W.IsIconic(t.Hwnd))
@@ -2742,6 +2745,7 @@ class MainForm : Form
 
     void RaiseGuards()
     {
+        return;
         if (!OursInFront()) return;          // 다른 프로그램을 쓰는 중이면 아무것도 안 함
         foreach (Target t in T)
         {
@@ -4052,7 +4056,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.0.6";
+    public const string Version = "2.0.7";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
