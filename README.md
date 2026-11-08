@@ -78,6 +78,12 @@
 
 <img src="docs/img/tab-menu.png" alt="탭 오른쪽 클릭 메뉴" width="45%">
 
+### 앱 아이콘 고르기
+
+설정 → 화면 → **앱 아이콘**에서 7가지 중 마음에 드는 아이콘을 고를 수 있어요. 창 · 작업 표시줄 · 알림 영역 · 바탕화면 바로가기 아이콘이 함께 바뀌어요.
+
+<img src="docs/img/icons.png" alt="고를 수 있는 앱 아이콘 7가지" width="100%">
+
 ### 켤 때 자동으로 칸에 넣기
 
 켜면 칸마다 정해 둔 앱을 찾아서 넣어요. 앱이 칸에 들어가는 동안에는 로딩 화면이 보여요.
@@ -140,7 +146,7 @@
 | 화면 | 보내기 |
 |---|---|
 | <img src="docs/img/settings-screen.png" alt="설정 — 화면"> | <img src="docs/img/settings-send.png" alt="설정 — 보내기"> |
-| 테마 색 5가지 · 항상 위에 두기 · 아래 입력창 열어 두기 | Ctrl+Enter로 보내기 · 켤 때 모든 칸을 새 대화로 |
+| 테마 색 5가지 · 항상 위에 두기 · 아래 입력창 열어 두기 · 앱 아이콘 7가지 | Ctrl+Enter로 보내기 · 켤 때 모든 칸을 새 대화로 |
 | **시작과 닫기** | **정보** |
 | <img src="docs/img/settings-startup.png" alt="설정 — 시작과 닫기"> | <img src="docs/img/settings-about.png" alt="설정 — 정보"> |
 | 윈도우를 켜면 RamSpirit도 켜기 · 닫을 때 칸 안의 앱도 같이 닫기 | 지금 버전 · 업데이트 확인 · 설정 폴더 · 다운로드 페이지 |
