@@ -1,5 +1,6 @@
 # src 폴더가 바뀌면 윈도우 실행 파일(RamSpirit.exe)을 만들어 깃허브 릴리스에 올린다.
 # 버전은 src/RamSpirit.cs 안의 Updater.Version 값을 따른다. 같은 버전 릴리스가 이미 있으면 건너뛴다.
+# 릴리스 설명은 CHANGELOG.md에서 그 버전 부분을 가져온다 (src를 올리기 전에 CHANGELOG.md에 먼저 적어 둘 것).
 name: RamSpirit 만들기
 
 on:
@@ -39,4 +40,8 @@ jobs:
         run: |
           V="v${{ steps.v.outputs.version }}"
           if gh release view "$V" >/dev/null 2>&1; then echo "$V 릴리스가 이미 있어요"; exit 0; fi
-          gh release create "$V" RamSpirit.exe --title "RamSpirit $V" --notes "RamSpirit $V"
+          # 릴리스 설명: CHANGELOG.md의 이 버전 부분 + 내려받기 안내
+          awk -v v="## $V " 'index($0,v)==1{on=1; sub(/^## [^ ]+ · /,"## "); print; next} /^## v/{on=0} on' CHANGELOG.md > notes.md || true
+          if [ ! -s notes.md ]; then echo "RamSpirit $V" > notes.md; fi
+          printf '\n---\n**내려받기:** 아래 Assets의 `RamSpirit.exe`를 받아 실행하세요. 이미 쓰고 있다면 자동으로 업데이트돼요.\n\n전체 사용법은 [README](https://github.com/dpfkadpfka/ramspirit#readme)에 있어요.\n' >> notes.md
+          gh release create "$V" RamSpirit.exe --title "RamSpirit $V" --notes-file notes.md
