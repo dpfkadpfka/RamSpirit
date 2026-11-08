@@ -783,6 +783,104 @@ class ChoiceTile : Control
     }
 }
 
+// 앱 아이콘 (실행 파일 안에 넣어 둔 7가지 중 고름)
+static class AppIcon
+{
+    public const int Count = 7;
+    public static int Current = 1;
+    public static Icon Load(int n)
+    {
+        try
+        {
+            using (Stream st = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("icon" + n + ".ico"))
+                if (st != null) return new Icon(st);
+        }
+        catch { }
+        return null;
+    }
+    public static Bitmap Picture(int n, int size)
+    {
+        try
+        {
+            using (Stream st = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("icon" + n + ".png"))
+                if (st != null) using (var b = new Bitmap(st)) return new Bitmap(b, size, size);
+        }
+        catch { }
+        return null;
+    }
+    // 바로가기 아이콘으로 쓸 .ico 파일 (설치 폴더 안 icons 폴더)
+    public static string IcoFile(int n)
+    {
+        try
+        {
+            string dir = Path.Combine(Updater.InstallDir, "icons");
+            Directory.CreateDirectory(dir);
+            string f = Path.Combine(dir, "icon" + n + ".ico");
+            using (Stream st = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("icon" + n + ".ico"))
+            {
+                if (st == null) return null;
+                using (FileStream fs = File.Create(f)) st.CopyTo(fs);
+            }
+            return f;
+        }
+        catch { return null; }
+    }
+    // 바탕화면·시작 메뉴 바로가기 아이콘 바꾸기
+    public static void UpdateShortcuts(int n)
+    {
+        string ico = n == 1 ? null : IcoFile(n);
+        string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
+        foreach (string folder in new string[] {
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs") })
+        {
+            string lnk = Path.Combine(folder, "RamSpirit.lnk");
+            if (!File.Exists(lnk)) continue;
+            try
+            {
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                object sh = Activator.CreateInstance(t);
+                object sc = t.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, sh, new object[] { lnk });
+                Type ct = sc.GetType();
+                ct.InvokeMember("IconLocation", BindingFlags.SetProperty, null, sc, new object[] { (ico ?? exe) + ",0" });
+                ct.InvokeMember("Save", BindingFlags.InvokeMethod, null, sc, null);
+            }
+            catch { }
+        }
+    }
+}
+
+// 앱 아이콘 고르기 타일
+class IconTile : Control
+{
+    public Image Img;
+    public bool Selected;
+    bool hover;
+    public IconTile()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Cursor = Cursors.Hand;
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : Th.Glass);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        using (GraphicsPath path = Th.RoundPath(new Rectangle(1, 1, Width - 3, Height - 3), 12))
+        using (var br = new SolidBrush(Color.White))
+        using (var pen = new Pen(Selected ? Th.Accent : hover ? Th.BorderHover : Th.Border, Selected ? 2f : 1f))
+        { g.FillPath(br, path); g.DrawPath(pen, path); }
+        if (Img != null)
+        {
+            int d = Math.Min(Width, Height) - 22;
+            g.DrawImage(Img, new Rectangle((Width - d) / 2, (Height - d) / 2, d, d));
+        }
+    }
+}
+
 // 테마 색 고르기 타일 (색 동그라미 + 이름)
 class SwatchTile : Control
 {
@@ -1410,7 +1508,7 @@ class MainForm : Form
         // 위쪽 막대: 왼쪽 앱 이름 · 모두 새 대화 · 칸 크기 같게 / 오른쪽 업데이트 · 버전 · 설정
         bar = new Panel();
         bar.Dock = DockStyle.Top; bar.Height = 40; bar.BackColor = Th.Glass;
-        var logo = new PictureBox();
+        logo = new PictureBox();
         logo.SizeMode = PictureBoxSizeMode.Zoom; logo.BackColor = Th.Glass;
         try { logo.Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath).ToBitmap(); } catch { }
         logo.SetBounds(14, 11, 18, 18);
@@ -1491,6 +1589,7 @@ class MainForm : Form
         BuildComposer();
 
         LoadSpaces();
+        ApplyIcon(AppIcon.Current, false);
         T = cur.T; colW = cur.ColW; rowW = cur.RowW;
         foreach (AppInfo a in cur.Apps) AddTarget(a);
         cur.Started = true;
@@ -1538,6 +1637,7 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#ctrlenter") { ctrlEnterSend = p[1] == "1"; continue; }
                     if (p.Length == 2 && p[0] == "#startnew") { startNewChat = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#closeapps") { closeApps = p[1] != "0"; continue; }
+                    if (p.Length == 2 && p[0] == "#icon") { int n; if (int.TryParse(p[1], out n) && n >= 1 && n <= AppIcon.Count) AppIcon.Current = n; continue; }
                     if (line.StartsWith("#") && !line.StartsWith("#ratio")) continue;
                     if (w == null) { w = new Workspace("AI"); spaces.Add(w); }   // 예전 설정 파일(탭 없음)
                     if (p.Length == 3 && p[0] == "#ratio")
@@ -1610,6 +1710,7 @@ class MainForm : Form
             if (cur != null) lines.Add("#active\t" + cur.Name);
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             lines.Add("#theme\t" + Th.Name);
+            lines.Add("#icon\t" + AppIcon.Current);
             lines.Add("#ontop\t" + (onTop ? "1" : "0"));
             lines.Add("#ctrlenter\t" + (ctrlEnterSend ? "1" : "0"));
             lines.Add("#startnew\t" + (startNewChat ? "1" : "0"));
@@ -2009,6 +2110,27 @@ class MainForm : Form
         swTop.SetBounds(0, 168, PW, 62); p2.Controls.Add(swTop);
         var swComp = new SwitchRow("아래 입력창 열어 두기", "끄면 입력창이 숨겨져서 앱 칸이 더 커져요 (위쪽 「한 번에 보내기」로 언제든 열기)", compOpen);
         swComp.SetBounds(0, 236, PW, 62); p2.Controls.Add(swComp);
+        section(p2, "앱 아이콘", 316);
+        int pickIcon = AppIcon.Current;
+        var iconTiles = new List<IconTile>();
+        int iw = (PW - (AppIcon.Count - 1) * 8) / AppIcon.Count;
+        for (int i = 1; i <= AppIcon.Count; i++)
+        {
+            var it = new IconTile();
+            it.Img = AppIcon.Picture(i, 48);
+            it.Selected = i == pickIcon;
+            it.SetBounds((i - 1) * (iw + 8), 342, iw, Math.Min(iw, 70));
+            int num = i;
+            IconTile meI = it;
+            it.Click += delegate
+            {
+                pickIcon = num;
+                foreach (IconTile x in iconTiles) { x.Selected = x == meI; x.Invalidate(); }
+            };
+            Tip(it, num == 1 ? "기본 아이콘" : "아이콘 " + num);
+            iconTiles.Add(it);
+            p2.Controls.Add(it);
+        }
 
         // ===== 3. 보내기 =====
         Panel p3 = addPage("\uE724", "보내기");
@@ -2071,6 +2193,7 @@ class MainForm : Form
 
         // 화면·보내기·시작 설정은 바로 적용
         if (pickTheme != Th.Name) SetTheme(pickTheme);
+        if (pickIcon != AppIcon.Current) { ApplyIcon(pickIcon, true); SaveConfig(); }
         if (swTop.Checked != onTop) SetOnTop(swTop.Checked);
         if (swComp.Checked != compOpen) SetComposer(swComp.Checked);
         ctrlEnterSend = swCtrl.Checked;
@@ -2086,6 +2209,7 @@ class MainForm : Form
     }
 
     // ---------- 탭 ----------
+    PictureBox logo;
     readonly List<IconBtn> tabBtns = new List<IconBtn>();
     IconBtn tabAdd;
     SegBox tabSeg, toolSeg;
@@ -2330,6 +2454,18 @@ class MainForm : Form
         if (!done) return null;
         string n = name.Text.Trim().Replace("\t", " ");
         return n.Length > 12 ? n.Substring(0, 12) : n;
+    }
+
+    // 앱 아이콘 바꾸기 (창·작업 표시줄·알림 영역·위쪽 로고, 바꿀 때는 바로가기도)
+    void ApplyIcon(int n, bool shortcuts)
+    {
+        Icon ic = AppIcon.Load(n);
+        if (ic == null) return;
+        AppIcon.Current = n;
+        try { Icon = ic; } catch { }
+        try { if (logo != null) { Bitmap b = AppIcon.Picture(n, 32); if (b != null) logo.Image = b; } } catch { }
+        try { if (tray != null) tray.Icon = ic; } catch { }
+        if (shortcuts) RunBackground(delegate { AppIcon.UpdateShortcuts(n); }, delegate { });
     }
 
     // 테마를 바꾸면 지금 화면 색도 바로 바뀜
@@ -4248,7 +4384,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.1.2";
+    public const string Version = "2.2.0";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
