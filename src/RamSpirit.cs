@@ -828,11 +828,12 @@ static class AppIcon
     // 바탕화면·시작 메뉴 바로가기 아이콘 바꾸기
     public static void UpdateShortcuts(int n)
     {
-        string ico = n == 1 ? null : IcoFile(n);
+        string ico = IcoFile(n);   // 1번도 따로 만든 .ico를 가리켜서, 윈도우가 기억해 둔 예전 아이콘 대신 새로 읽게 함
         string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
         foreach (string folder in new string[] {
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs") })
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar") })
         {
             string lnk = Path.Combine(folder, "RamSpirit.lnk");
             if (!File.Exists(lnk)) continue;
@@ -847,7 +848,9 @@ static class AppIcon
             }
             catch { }
         }
+        try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }   // 아이콘 다시 그리기
     }
+    [DllImport("shell32.dll")] static extern void SHChangeNotify(int e, int f, IntPtr a, IntPtr b);
 }
 
 // 앱 아이콘 고르기 타일
@@ -1589,7 +1592,8 @@ class MainForm : Form
         BuildComposer();
 
         LoadSpaces();
-        ApplyIcon(AppIcon.Current, false);
+        // 업데이트 뒤 처음 켜면 바로가기·작업 표시줄 고정 아이콘도 새 아이콘으로
+        ApplyIcon(AppIcon.Current, lastVer != Updater.Version);
         T = cur.T; colW = cur.ColW; rowW = cur.RowW;
         foreach (AppInfo a in cur.Apps) AddTarget(a);
         cur.Started = true;
@@ -1637,6 +1641,7 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#ctrlenter") { ctrlEnterSend = p[1] == "1"; continue; }
                     if (p.Length == 2 && p[0] == "#startnew") { startNewChat = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#closeapps") { closeApps = p[1] != "0"; continue; }
+                    if (p.Length == 2 && p[0] == "#ver") { lastVer = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#icon") { int n; if (int.TryParse(p[1], out n) && n >= 1 && n <= AppIcon.Count) AppIcon.Current = n; continue; }
                     if (line.StartsWith("#") && !line.StartsWith("#ratio")) continue;
                     if (w == null) { w = new Workspace("AI"); spaces.Add(w); }   // 예전 설정 파일(탭 없음)
@@ -1711,6 +1716,7 @@ class MainForm : Form
             lines.Add("#composer\t" + (compOpen ? "1" : "0"));
             lines.Add("#theme\t" + Th.Name);
             lines.Add("#icon\t" + AppIcon.Current);
+            lines.Add("#ver\t" + Updater.Version);
             lines.Add("#ontop\t" + (onTop ? "1" : "0"));
             lines.Add("#ctrlenter\t" + (ctrlEnterSend ? "1" : "0"));
             lines.Add("#startnew\t" + (startNewChat ? "1" : "0"));
@@ -2210,6 +2216,7 @@ class MainForm : Form
 
     // ---------- 탭 ----------
     PictureBox logo;
+    string lastVer = "";
     readonly List<IconBtn> tabBtns = new List<IconBtn>();
     IconBtn tabAdd;
     SegBox tabSeg, toolSeg;
@@ -4384,7 +4391,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.2.0";
+    public const string Version = "2.2.1";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
