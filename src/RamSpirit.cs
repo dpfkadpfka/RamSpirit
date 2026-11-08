@@ -1371,6 +1371,7 @@ class Target
     public bool Hidden, Web, Pending;
     public DateTime CheckAt;
     public bool WantNewChat;
+    public bool Closed;    // 앱의 닫기(X)로 창이 숨겨짐 → 칸을 누르면 다시 보임
     public bool Lent;      // 이 앱 창을 다른 탭이 빌려 감 (그 탭에서 쓰는 중)
     public bool TooSmall;  // 창이 작아서 이 앱이 칸에 안 들어감 → 잠시 숨김
     public bool Lost;      // 칸 안의 앱이 닫힘
@@ -1884,7 +1885,17 @@ class MainForm : Form
         var wait = new Label();
         wait.Dock = DockStyle.Fill; wait.Text = "불러오는 중..."; wait.ForeColor = Th.Sub;
         wait.TextAlign = ContentAlignment.MiddleCenter; wait.Font = font;
-        wait.Click += delegate { if (t.TooSmall) { ToggleSolo(t); return; } if (t.Lost || t.Hwnd == IntPtr.Zero) Reopen(t); };
+        wait.Click += delegate
+        {
+            if (t.TooSmall) { ToggleSolo(t); return; }
+            if (t.Closed && t.Hwnd != IntPtr.Zero && W.IsWindow(t.Hwnd))
+            {
+                t.Closed = false; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; t.Rgn = "";
+                SyncWindows();   // Hidden이므로 다시 보이게 함
+                return;
+            }
+            if (t.Lost || t.Hwnd == IntPtr.Zero) Reopen(t);
+        };
         body.Controls.Add(wait);
 
         cell.Controls.Add(body);
@@ -1930,7 +1941,7 @@ class MainForm : Form
             released.Add(t.Hwnd.ToInt64());
             t.Hwnd = IntPtr.Zero;
         }
-        t.Pending = false; t.Hidden = false; t.Web = false; t.TooSmall = false; t.Lent = false;
+        t.Pending = false; t.Hidden = false; t.Web = false; t.TooSmall = false; t.Lent = false; t.Closed = false;
     }
 
     // ---------- 설정 창 ----------
@@ -2285,7 +2296,7 @@ class MainForm : Form
         t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = false;
         t.Hidden = true; t.Pending = false; t.Lost = false; t.Lent = false; t.Missing = 0; t.Misfit = 0;
         t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false; t.MinW = 0; t.MinH = 0;
-        t.WantNewChat = false;
+        t.WantNewChat = false; t.Closed = false; o.Closed = false;
         t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
         o.Hwnd = IntPtr.Zero; o.Hidden = false; o.Pending = false; o.TooSmall = false; o.Lent = true; o.WantNewChat = false;
         if (o.Guard != null) { o.Guard.Dispose(); o.Guard = null; }
@@ -2321,7 +2332,7 @@ class MainForm : Form
                 if (WindowState == FormWindowState.Minimized) return;
                 foreach (Target t in T)
                 {
-                    if (t.Hwnd == IntPtr.Zero || !t.Cell.Visible || t.TooSmall) continue;
+                    if (t.Hwnd == IntPtr.Zero || !t.Cell.Visible || t.TooSmall || t.Closed) continue;
                     if (W.IsIconic(t.Hwnd) || !W.IsWindowVisible(t.Hwnd)) W.ShowWindowAsync(t.Hwnd, 4);
                     t.Hidden = false; t.Rgn = "";
                 }
@@ -2943,6 +2954,7 @@ class MainForm : Form
             if (t.Cell.Visible)
             {
                 Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+                if (t.Closed) continue;   // 앱 X로 닫은 창은 칸을 누를 때까지 숨겨 둠
                 if (t.TooSmall)
                 {
                     // 칸이 다시 앱 최소 크기만큼 커졌으면 다시 보여 줌, 아니면 계속 숨겨 둠
@@ -3741,10 +3753,16 @@ class MainForm : Form
             if (alive) { t.Missing = 0; KeepInCell(t); continue; }
             if (exists)
             {
-                // 앱이 창을 스스로 숨김(트레이로 숨기기 등) → 다시 칸에 보이게
-                W.ShowWindowAsync(t.Hwnd, 8);
-                t.Rgn = "";
-                Log(t.App.Name + " 창이 숨겨져서 다시 보이게 함");
+                // 앱의 닫기(X)를 눌러서 앱이 창을 숨김 → 억지로 다시 띄우지 않고, 칸에서 눌러 다시 열 수 있게
+                if (++t.Missing < 2) continue;
+                t.Missing = 0;
+                t.Closed = true;
+                t.Hidden = true;
+                if (t.Guard != null) t.Guard.Hide();
+                t.Wait.Text = t.App.Name + " 창을 닫았어요\n여기를 누르면 다시 열어요";
+                t.Wait.Cursor = Cursors.Hand;
+                t.Wait.Visible = true;
+                Log(t.App.Name + " 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내");
                 continue;
             }
             if (++t.Missing < 2) continue;
@@ -4409,7 +4427,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.2.2";
+    public const string Version = "2.2.3";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
