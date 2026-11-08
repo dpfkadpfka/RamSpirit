@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/img/banner.png" alt="RamSpirit — 여러 AI 앱을 한 창에, 질문은 한 번에" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dpfkadpfka/ramspirit/releases/latest/download/RamSpirit.exe"><b>RamSpirit.exe 내려받기</b></a>
-  &nbsp;·&nbsp; <a href="https://github.com/dpfkadpfka/ramspirit/releases/latest">최신 버전</a>
+  <a href="https://github.com/dpfkadpfka/RamSpirit/releases/latest/download/RamSpirit.exe"><b>RamSpirit.exe 내려받기</b></a>
+  &nbsp;·&nbsp; <a href="https://github.com/dpfkadpfka/RamSpirit/releases/latest">최신 버전</a>
   &nbsp;·&nbsp; <a href="CHANGELOG.md">바뀐 점</a>
   &nbsp;·&nbsp; 윈도우 10·11 · 무료
 </p>
@@ -51,11 +51,9 @@
 
 ### 칸 크기 조절
 
-칸 사이 선을 잡고 끌면 안내선만 움직이고, 놓는 순간 칸 크기가 바뀌어요. 위쪽 「칸 크기 같게」를 누르면 다시 똑같아져요.
+칸 사이 선을 잡고 끌면 놓는 순간 칸 크기가 바뀌어요. 위쪽 「칸 크기 같게」를 누르면 다시 똑같아져요.
 
-| 끄는 중 | 놓은 뒤 |
-|---|---|
-| <img src="docs/img/resize-drag.png" alt="칸 사이 선을 끄는 모습"> | <img src="docs/img/resize-done.png" alt="칸 크기가 바뀐 모습"> |
+<img src="docs/img/resize-done.png" alt="칸 사이 선을 끌어 칸 크기를 바꾼 모습" width="100%">
 
 ### 한 칸만 크게 보기
 
@@ -116,7 +114,7 @@
 
 <img src="docs/img/steps-install.png" alt="설치 따라 하기 4단계" width="100%">
 
-1. [**RamSpirit.exe 내려받기**](https://github.com/dpfkadpfka/ramspirit/releases/latest/download/RamSpirit.exe)를 눌러 파일을 받아요.
+1. [**RamSpirit.exe 내려받기**](https://github.com/dpfkadpfka/RamSpirit/releases/latest/download/RamSpirit.exe)를 눌러 파일을 받아요.
 2. 받은 파일을 두 번 눌러 실행해요.
 3. 파란 **「Windows의 PC 보호」** 창이 뜨면 **추가 정보**를 누르고 **실행**을 눌러요.
 4. RamSpirit가 스스로 제자리에 설치되고, 바탕화면과 시작 메뉴에 아이콘이 생겨요. 받은 파일은 지워도 돼요.
@@ -221,7 +219,7 @@ RamSpirit를 닫고, 탐색기 주소창에 <code>%LOCALAPPDATA%\RamSpirit</code
 
 ## 바뀐 점
 
-버전마다 바뀐 점은 [**CHANGELOG.md**](CHANGELOG.md)와 [**Releases**](https://github.com/dpfkadpfka/ramspirit/releases)에서 볼 수 있어요.
+버전마다 바뀐 점은 [**CHANGELOG.md**](CHANGELOG.md)와 [**Releases**](https://github.com/dpfkadpfka/RamSpirit/releases)에서 볼 수 있어요.
 
 ---
 

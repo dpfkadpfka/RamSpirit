@@ -22,7 +22,7 @@ jobs:
           for V in $(gh release list --limit 200 --json tagName -q '.[].tagName'); do
             awk -v v="## $V " 'index($0,v)==1{on=1; sub(/^## [^ ]+ · /,"## "); print; next} /^## v/{on=0} on' CHANGELOG.md > notes.md
             [ -s notes.md ] || continue
-            printf '\n---\n**내려받기:** 아래 Assets의 `RamSpirit.exe`를 받아 실행하세요. 이미 쓰고 있다면 자동으로 업데이트돼요.\n\n전체 사용법은 [README](https://github.com/dpfkadpfka/ramspirit#readme)에 있어요.\n' >> notes.md
+            printf '\n---\n**내려받기:** 아래 Assets의 `RamSpirit.exe`를 받아 실행하세요. 이미 쓰고 있다면 자동으로 업데이트돼요.\n\n전체 사용법은 [README](https://github.com/dpfkadpfka/RamSpirit#readme)에 있어요.\n' >> notes.md
             gh release edit "$V" --notes-file notes.md
             echo "$V 설명 바꿈"
           done

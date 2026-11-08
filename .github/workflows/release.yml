@@ -43,5 +43,5 @@ jobs:
           # 릴리스 설명: CHANGELOG.md의 이 버전 부분 + 내려받기 안내
           awk -v v="## $V " 'index($0,v)==1{on=1; sub(/^## [^ ]+ · /,"## "); print; next} /^## v/{on=0} on' CHANGELOG.md > notes.md || true
           if [ ! -s notes.md ]; then echo "RamSpirit $V" > notes.md; fi
-          printf '\n---\n**내려받기:** 아래 Assets의 `RamSpirit.exe`를 받아 실행하세요. 이미 쓰고 있다면 자동으로 업데이트돼요.\n\n전체 사용법은 [README](https://github.com/dpfkadpfka/ramspirit#readme)에 있어요.\n' >> notes.md
+          printf '\n---\n**내려받기:** 아래 Assets의 `RamSpirit.exe`를 받아 실행하세요. 이미 쓰고 있다면 자동으로 업데이트돼요.\n\n전체 사용법은 [README](https://github.com/dpfkadpfka/RamSpirit#readme)에 있어요.\n' >> notes.md
           gh release create "$V" RamSpirit.exe --title "RamSpirit $V" --notes-file notes.md

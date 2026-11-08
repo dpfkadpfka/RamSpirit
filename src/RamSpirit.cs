@@ -2195,7 +2195,7 @@ class MainForm : Form
         var bRel = new IconBtn();
         bRel.Glyph = "\uE774"; bRel.Text = "다운로드 페이지 열기"; bRel.Radius = 10;
         bRel.SetBounds(0, 224, Math.Max(150, bRel.Need()), 38);
-        bRel.Click += delegate { try { Process.Start("https://github.com/dpfkadpfka/ramspirit/releases/latest"); } catch { } };
+        bRel.Click += delegate { try { Process.Start("https://github.com/dpfkadpfka/RamSpirit/releases/latest"); } catch { } };
         p5.Controls.Add(bRel);
 
         // 처음 페이지
@@ -4427,9 +4427,9 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.2.3";
+    public const string Version = "2.2.4";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
-    const string Repo = "dpfkadpfka/ramspirit";
+    const string Repo = "dpfkadpfka/RamSpirit";
 
     public static string InstallDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RamSpirit"); } }
     public static string InstalledExe { get { return Path.Combine(InstallDir, "RamSpirit.exe"); } }
