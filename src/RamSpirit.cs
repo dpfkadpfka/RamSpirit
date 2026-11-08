@@ -3425,7 +3425,19 @@ class MainForm : Form
         if (sendHint != null) sendHint.SetBounds(x + 14, y, Math.Max(10, r - x - 14), h);
     }
 
-    void CheckUpdateLater() { CheckUpdate(false, 4000); }
+    // 켜고 4초 뒤 한 번, 그 뒤로는 켜 두는 동안 30분마다 새 버전을 확인
+    Timer updTimer;
+    void CheckUpdateLater()
+    {
+        CheckUpdate(false, 4000);
+        if (updTimer == null)
+        {
+            updTimer = new Timer(); updTimer.Interval = 30 * 60 * 1000;
+            updTimer.Tick += delegate { if (Updater.Ready == null) CheckUpdate(false, 0); };
+            updTimer.Start();
+        }
+    }
+    string notifiedVer;
 
     bool checking;
 
@@ -3461,7 +3473,12 @@ class MainForm : Form
         Tip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
         LayoutBar();
         if (trayUpdate != null) { trayUpdate.Text = "새 버전 v" + ver + " 적용하고 다시 시작"; }
-        if (tray != null && manual) tray.ShowBalloonTip(3000, "RamSpirit", "새 버전 v" + ver + "을 받아 두었어요. 위쪽 보라색 버튼이나 이 메뉴로 다시 시작하세요.", ToolTipIcon.Info);
+        // 새 버전을 받으면 확인 버튼을 누르지 않아도 윈도우 알림으로 알려 줌 (버전마다 한 번)
+        if (tray != null && (manual || notifiedVer != ver))
+        {
+            notifiedVer = ver;
+            tray.ShowBalloonTip(8000, "RamSpirit 새 버전 v" + ver, "받아 두었어요. 이 알림을 누르면 다시 시작하면서 바로 적용돼요.", ToolTipIcon.Info);
+        }
     }
 
     // ---------- 작업 표시줄 오른쪽 아래 알림 영역(트레이) 아이콘 ----------
@@ -3471,6 +3488,7 @@ class MainForm : Form
     void MakeTray()
     {
         tray = new NotifyIcon();
+        tray.BalloonTipClicked += delegate { if (Updater.Ready != null && updBtn.Visible) updBtn.PerformClick(); };
         try { tray.Icon = Icon ?? Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         tray.Text = "RamSpirit v" + Updater.Version;
         var m = Ui.Menu();
@@ -4391,7 +4409,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.2.1";
+    public const string Version = "2.2.2";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/ramspirit";
 
