@@ -4356,6 +4356,12 @@ class MainForm : Form
                 W.Place(t.Hwnd, nr.L, nr.T, nr.R - nr.L - 1, nr.B - nr.T);
                 W.Place(t.Hwnd, nr.L, nr.T, nr.R - nr.L, nr.B - nr.T);
             }
+            // 웹 창은 크롬 제목 줄을 칸 제목 줄 밑에 감춰 둠 → 크롬이 스스로 앞으로 나와 칸 제목 줄을 덮으면 1초 안에 다시 밑으로
+            if (alive && t.Lift > 0 && t.HeadHost != null && !t.HeadHost.IsDisposed)
+            {
+                if (!t.HeadHost.Visible) { t.Rgn = ""; SyncWindows(); }
+                W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
+            }
             if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0 && t.Proc != "chrome" && t.Proc != "msedge") W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
@@ -5205,7 +5211,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.16";
+    public const string Version = "2.3.17";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
