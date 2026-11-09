@@ -3781,7 +3781,6 @@ class MainForm : Form
         verLbl.Visible = false;   // 버전은 설정 → 정보에서
         if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 4; }
         if (hideBtn != null) { hideBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
-        if (Updater.Ready != null) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
         // 탭 묶음 [AI][이미지] + [+]
         if (tabAdd != null && tabSeg != null)
         {
@@ -3832,6 +3831,7 @@ class MainForm : Form
         }
     }
     string notifiedVer;
+    Form updPop;
 
     bool checking;
 
@@ -3862,17 +3862,26 @@ class MainForm : Form
 
     void ShowReady(string ver, bool manual)
     {
-        updBtn.Text = "새 버전 v" + ver + " 준비됨 · 다시 시작";
-        updBtn.Visible = true;
-        Tip(updBtn, "누르면 RamSpirit가 다시 켜지면서 새 버전이 적용돼요");
-        LayoutBar();
         if (trayUpdate != null) { trayUpdate.Text = "새 버전 v" + ver + " 적용하고 다시 시작"; }
-        // 새 버전을 받으면 확인 버튼을 누르지 않아도 윈도우 알림으로 알려 줌 (버전마다 한 번)
-        if (tray != null && (manual || notifiedVer != ver))
+        // 새 버전을 받으면 위쪽 막대 대신 작은 팝업 창으로 알려 줌 (버전마다 한 번, 직접 확인했으면 매번)
+        if (!manual && notifiedVer == ver) return;
+        notifiedVer = ver;
+        if (WindowState == FormWindowState.Minimized || !Visible)
         {
-            notifiedVer = ver;
-            tray.ShowBalloonTip(8000, "RamSpirit 새 버전 v" + ver, "받아 두었어요. 이 알림을 누르면 바로 적용되고, 안 눌러도 컴퓨터를 잠시 안 쓸 때 알아서 적용돼요.", ToolTipIcon.Info);
+            if (tray != null) tray.ShowBalloonTip(8000, "RamSpirit 새 버전 v" + ver, "받아 두었어요. 이 알림을 누르면 바로 적용되고, 안 눌러도 컴퓨터를 잠시 안 쓸 때 알아서 적용돼요.", ToolTipIcon.Info);
+            return;
         }
+        if (updPop != null && !updPop.IsDisposed) { updPop.Activate(); return; }
+        Panel body; IconBtn ok, cancel;
+        updPop = Ui.Shell("새 버전 v" + ver + " 준비됨", "지금 적용하면 RamSpirit가 다시 켜져요. 나중에 해도 쉴 때 알아서 적용돼요.", 500, 180, "지금 적용", out body, out ok, out cancel);
+        cancel.Text = "나중에"; cancel.Invalidate();
+        Form pop = updPop;
+        ok.Click += delegate { pop.Close(); updBtn.PerformClick(); };
+        pop.StartPosition = FormStartPosition.Manual;
+        Rectangle me = Bounds;
+        pop.Location = new Point(me.X + (me.Width - pop.Width) / 2, me.Y + Math.Max(60, (me.Height - pop.Height) / 3));
+        pop.TopMost = true;
+        pop.Show(this);
     }
 
     // ---------- 작업 표시줄 오른쪽 아래 알림 영역(트레이) 아이콘 ----------
@@ -4949,7 +4958,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.10";
+    public const string Version = "2.3.11";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
