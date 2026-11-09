@@ -1495,7 +1495,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -1932,6 +1932,8 @@ class MainForm : Form
             if (startApps.TryGetValue(n, out id)) break;
         if (!string.IsNullOrEmpty(id))
         {
+            // 크롬·엣지로 설치한 웹 앱(PWA)이면 웹 창이 뜸
+            if (id.IndexOf("_crx_", StringComparison.OrdinalIgnoreCase) >= 0 || id.StartsWith("Chrome.", StringComparison.OrdinalIgnoreCase) || id.StartsWith("MSEdge.", StringComparison.OrdinalIgnoreCase)) t.Web = true;
             try { Process.Start("explorer.exe", "shell:AppsFolder\\" + id); }
             catch { OpenWeb(t); t.Web = true; }
         }
@@ -4035,7 +4037,7 @@ class MainForm : Form
             bool exists = W.IsWindow(t.Hwnd);
             bool alive = exists && W.IsWindowVisible(t.Hwnd);
             if (alive && W.IsIconic(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 4); t.Rgn = ""; SyncWindows(); continue; }   // 최소화돼 있으면 칸 안에 다시 펼침
-            if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0) W.HideTab(t.Hwnd); continue; }
+            if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0 && t.Proc != "chrome" && t.Proc != "msedge") W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
                 // 앱의 닫기(X)를 눌러서 앱이 창을 숨김 → 억지로 다시 띄우지 않고, 칸에서 눌러 다시 열 수 있게
@@ -4191,14 +4193,31 @@ class MainForm : Form
         // 기본: 붙어 있던 앱들도 같이 닫음 / Shift를 누른 채 닫으면 앱은 따로 창으로 남김
         bool keep = keepOnClose;
         int i = 0;
+        var hand = new List<string>();
+        foreach (Workspace w in spaces)
+            for (int k = 0; k < w.T.Count; k++)
+            {
+                Target t = w.T[k];
+                if (t.Hwnd != IntPtr.Zero && restarting)
+                    hand.Add(w.Name + "\t" + k + "\t" + t.Hwnd.ToInt64() + "\t" + (t.Web ? "1" : "0") + "\t" + t.Proc);
+            }
+        if (restarting) { try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { } }
         foreach (Target t in AllTargets())
         {
             if (t.Hwnd != IntPtr.Zero)
             {
                 if (keep) W.Detach(t.Hwnd, t.OldStyle, 80 + i * 40, 80 + i * 40, 1100, 800);
                 else W.CloseApp(t.Hwnd, t.OldStyle);
+                if (restarting) W.ShowWindowAsync(t.Hwnd, 0);   // 새 버전이 바로 다시 붙임 → 그 사이 따로 떠 보이지 않게
             }
             i++;
+        }
+        // 다시 켠 뒤 아직 안 연 탭에 넘겨받은 창이 남아 있으면 정리
+        foreach (KeyValuePair<string, string[]> e in handoff)
+        {
+            IntPtr h = new IntPtr(long.Parse(e.Value[2]));
+            if (!W.IsWindow(h)) continue;
+            if (keep) W.ShowWindowAsync(h, 5); else W.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
         }
         // 앱을 바꾸면서 최소화해 둔 예전 창도 같이 닫기
         if (!keep) foreach (long h in released) W.PostMessage(new IntPtr(h), 0x0010, IntPtr.Zero, IntPtr.Zero);
@@ -4268,6 +4287,7 @@ class MainForm : Form
             else SaveConfig();
             firstRun = false;
         }
+        ReadHandoff();
         startupSearch = true;
         StartSearch(new List<Target>(T));
         startupSearch = false;
@@ -4324,6 +4344,54 @@ class MainForm : Form
     }
 
     // 그 앱 창이 이미 열려 있는지 (브라우저 창·스토어 앱 창은 빼고)
+    // 업데이트로 다시 켤 때 넘겨받는 창 목록 (탭 이름 + 칸 번호 → 창)
+    string handoffFile = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit"), "handoff.txt");
+    readonly Dictionary<string, string[]> handoff = new Dictionary<string, string[]>();
+    void ReadHandoff()
+    {
+        try
+        {
+            if (!File.Exists(handoffFile)) return;
+            bool fresh = (DateTime.Now - File.GetLastWriteTime(handoffFile)).TotalMinutes < 3;
+            string[] lines = File.ReadAllLines(handoffFile, Encoding.UTF8);
+            File.Delete(handoffFile);
+            foreach (string line in lines)
+            {
+                string[] p = line.Split('\t');
+                if (p.Length < 5) continue;
+                IntPtr h = new IntPtr(long.Parse(p[2]));
+                if (!W.IsWindow(h)) continue;
+                if (!fresh) { W.ShowWindowAsync(h, 5); continue; }
+                handoff[p[0] + "\t" + p[1]] = p;
+                used.Add(h.ToInt64());
+            }
+        }
+        catch { }
+    }
+    bool TakeHandoff(Target t)
+    {
+        if (cur == null || handoff.Count == 0) return false;
+        string key = cur.Name + "\t" + T.IndexOf(t);
+        string[] p;
+        if (!handoff.TryGetValue(key, out p)) return false;
+        handoff.Remove(key);
+        IntPtr h = new IntPtr(long.Parse(p[2]));
+        if (!W.IsWindow(h)) return false;
+        int old = W.Attach(h, Handle);
+        if (!origStyles.ContainsKey(h.ToInt64())) origStyles[h.ToInt64()] = old;
+        t.OldStyle = origStyles[h.ToInt64()];
+        t.Hwnd = h; t.Web = p[3] == "1"; t.Proc = p[4];
+        t.Lost = false; t.Missing = 0; t.Misfit = 0; t.WantNewChat = false;
+        t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0; t.MinW = 0; t.MinH = 0; t.CapBtns = Rectangle.Empty;
+        t.Wait.Visible = false;
+        FindTitleBar(t, h, t.Proc);
+        t.Pending = true;
+        t.CheckAt = DateTime.Now.AddMilliseconds(800);
+        Log(t.App.Name + " ← 다시 켜기 전 창 그대로");
+        SyncWindows();
+        return true;
+    }
+
     bool AlreadyOpen(Target t)
     {
         MarkSiblings();
@@ -4391,6 +4459,7 @@ class MainForm : Form
         foreach (Target t in list)
         {
             t.WantNewChat = !startupSearch || startNewChat;
+            if (TakeHandoff(t)) continue;   // 업데이트로 다시 켜기 전에 쓰던 창을 그대로 다시 붙임
             if (AlreadyOpen(t)) continue;   // 이미 켜져 있는 앱은 다시 켜지 않고 그 창을 바로 붙임
             Launch(t);
             System.Threading.Thread.Sleep(250);
@@ -4469,6 +4538,8 @@ class MainForm : Form
                 used.Add(kv.Key);
                 released.Remove(kv.Key);
                 t.Wait.Visible = false;
+                t.Proc = proc ?? "";
+                if (isBrowser) t.Web = true;
                 Log(t.App.Name + " ← 창 \"" + kv.Value + "\" (" + proc + ", " + cls + ")");
                 int old = W.Attach(h, Handle);
                 if (!origStyles.ContainsKey(kv.Key)) origStyles[kv.Key] = old;   // 다시 붙여도 원래 모양 기억
@@ -4715,7 +4786,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.5";
+    public const string Version = "2.3.6";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
