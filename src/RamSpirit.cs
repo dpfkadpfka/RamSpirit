@@ -1424,8 +1424,7 @@ class LoadCover : Form
     {
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
-        TopMost = true;
-        StartPosition = FormStartPosition.Manual;
+        StartPosition = FormStartPosition.Manual;   // 맨 위 고정(TopMost) 대신 RamSpirit 창에 딸린 창 → 내리면 같이 사라짐
         BackColor = Th.Bg1;
         DoubleBuffered = true;
     }
@@ -1796,8 +1795,10 @@ class MainForm : Form
         };
         Shown += delegate { OnFirstShown(); };
         // RamSpirit를 내리면(최소화) 칸 안 앱 창도 같이 숨기고, 다시 올리면 같이 보이게
+        Move += delegate { FollowCover(); };
         Resize += delegate
         {
+            FollowCover();
             bool mini = WindowState == FormWindowState.Minimized;
             if (mini == appsMini) return;
             appsMini = mini;
@@ -4593,7 +4594,29 @@ class MainForm : Form
         coverUntil = DateTime.Now.AddSeconds(20);   // 무슨 일이 있어도 20초 뒤엔 걷음
         coverReadyAt = DateTime.MinValue;
         UpdateCover();
-        if (!cover.Visible) cover.Show();
+        if (!cover.Visible) cover.Show(this);
+        RaiseCover();
+    }
+
+    // 가림막을 앱 창들보다 위로 (RamSpirit 창 안에서만)
+    void RaiseCover()
+    {
+        if (cover == null || cover.IsDisposed || !cover.Visible || !OursInFront()) return;
+        W.SetWindowPos(cover.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+    }
+
+    // RamSpirit 창을 옮기거나 크기를 바꾸면 가림막도 따라감, 내리면 숨김
+    void FollowCover()
+    {
+        if (cover == null || cover.IsDisposed) return;
+        if (WindowState == FormWindowState.Minimized) { if (cover.Visible) cover.Hide(); return; }
+        if (!cover.Visible && DateTime.Now < coverUntil && coverReadyAt == DateTime.MinValue)
+        {
+            bool waiting = false;
+            foreach (Target t in T) if (t.Cell.Visible && (t.Hwnd == IntPtr.Zero || t.Pending)) waiting = true;
+            if (waiting) cover.Show(this);
+        }
+        if (cover.Visible) { cover.Bounds = RectangleToScreen(ClientRectangle); RaiseCover(); }
     }
 
     void UpdateCover()
@@ -4615,6 +4638,7 @@ class MainForm : Form
     {
         if (cover == null || cover.IsDisposed || !cover.Visible) return;
         UpdateCover();
+        RaiseCover();
         if (DateTime.Now > coverUntil) { HideCover(); return; }
         bool all = true;
         foreach (Target t in T) if (t.Cell.Visible && (t.Hwnd == IntPtr.Zero || t.Pending)) all = false;
@@ -4958,7 +4982,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.11";
+    public const string Version = "2.3.12";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
