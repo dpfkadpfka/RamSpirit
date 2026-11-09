@@ -1670,6 +1670,7 @@ class MainForm : Form
         logo.SetBounds(14, 11, 18, 18);
         bar.Controls.Add(logo);
         var brand = new Label();
+        brandLbl = brand;
         brand.Text = "RamSpirit"; brand.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold); brand.ForeColor = Th.Text;
         brand.AutoSize = true; brand.BackColor = Th.Glass; brand.Location = new Point(36, 10);
         brand.Cursor = Cursors.Hand; logo.Cursor = Cursors.Hand;
@@ -3488,6 +3489,7 @@ class MainForm : Form
     // ---------- 항상 위 ----------
     bool onTop;
     IconBtn pinBtn, hideBtn;
+    Label brandLbl;
     Panel strip; bool stripHover, barHidden;
     void SetBarHidden(bool h)
     {
@@ -3788,25 +3790,45 @@ class MainForm : Form
     void LayoutBar()
     {
         if (barBtns == null) return;
-        int h = 28, y = (bar.Height - h) / 2, x = 132;
-        // 왼쪽 묶음: 모두 새 대화 · 칸 크기 같게 · 한 번에 보내기
-        int ix = 3;
-        for (int i = 0; i < 3; i++) { int w = barBtns[i].Need() - 8; barBtns[i].SetBounds(ix, 3, w, h - 6); ix += w + 2; }
-        toolSeg.SetBounds(x, y, ix + 1, h);
-        x += ix + 1;
-        // 오른쪽: [업데이트] [핀] 버전 [톱니]
+        int h = 28, y = (bar.Height - h) / 2;
+        // 오른쪽부터: [톱니] [핀] [숨기기] · 탭 묶음 · [+]
         int r = bar.ClientSize.Width - 10;
         barBtns[3].SetBounds(r - h, y, h, h); r -= h + 4;
         verLbl.Visible = false;   // 버전은 설정 → 정보에서
         if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 4; }
         if (hideBtn != null) { hideBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
-        // 탭 묶음 [AI][이미지] + [+]
-        if (tabAdd != null && tabSeg != null)
+        if (tabAdd != null) { r -= 6; tabAdd.SetBounds(r - h, y, h, h); r -= h + 4; }
+        var tw = new List<int>();
+        int tabsW = 4;
+        foreach (IconBtn b in tabBtns) { int w = Math.Max(48, b.Need() - 4); tw.Add(w); tabsW += w + 2; }
+        // 왼쪽 도구 묶음: 자리가 모자라면 글자를 빼고 아이콘만, 그래도 모자라면 「RamSpirit」 글자도 숨김
+        int fullTools = 4, iconTools = 4 + 3 * 32;
+        for (int i = 0; i < 3; i++) { if (barBtns[i].Tag == null) barBtns[i].Tag = barBtns[i].Text; barBtns[i].Text = (string)barBtns[i].Tag; fullTools += barBtns[i].Need() - 8 + 2; }
+        int brandX = 132;
+        bool iconOnly = brandX + fullTools + 16 + tabsW > r;
+        bool noBrand = iconOnly && brandX + iconTools + 16 + tabsW > r;
+        if (brandLbl != null) brandLbl.Visible = !noBrand;
+        int x = noBrand ? 40 : brandX;
+        int ix = 3;
+        for (int i = 0; i < 3; i++)
         {
-            r -= 6;
-            tabAdd.SetBounds(r - h, y, h, h); r -= h + 4;
+            if (iconOnly) barBtns[i].Text = "";
+            int w = iconOnly ? 30 : barBtns[i].Need() - 8;
+            barBtns[i].SetBounds(ix, 3, w, h - 6); ix += w + 2;
+        }
+        toolSeg.SetBounds(x, y, ix + 1, h);
+        x += ix + 1;
+        // 탭 묶음: 그래도 자리가 모자라면 탭을 고르게 줄임
+        if (tabSeg != null)
+        {
+            int room = r - x - 12;
+            if (tabsW > room && tabBtns.Count > 0)
+            {
+                int each = Math.Max(40, (room - 4) / tabBtns.Count - 2);
+                for (int k = 0; k < tw.Count; k++) tw[k] = Math.Min(tw[k], each);
+            }
             int tx = 3;
-            foreach (IconBtn b in tabBtns) { int tw = Math.Max(48, b.Need() - 4); b.SetBounds(tx, 3, tw, h - 6); tx += tw + 2; }
+            for (int k = 0; k < tabBtns.Count; k++) { tabBtns[k].SetBounds(tx, 3, tw[k], h - 6); tx += tw[k] + 2; }
             int segW = tx + 1;
             tabSeg.SetBounds(r - segW, y, segW, h); r -= segW + 8;
             tabSeg.Visible = tabBtns.Count > 0;
@@ -5007,7 +5029,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.13";
+    public const string Version = "2.3.14";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
