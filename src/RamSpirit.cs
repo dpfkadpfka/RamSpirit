@@ -153,14 +153,47 @@ static class W
     }
 
     // 앱 창을 테두리 없는 창으로 바꾸고 큰 창에 딸린 창(owner)으로 만듦 — 자식 창이 아니라서 키보드 입력이 정상
+    // 작업 표시줄 단추 숨기기/되살리기 (칸에 붙인 앱이 작업 표시줄에 따로 보이지 않게)
+    [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ITaskbarList { void HrInit(); void AddTab(IntPtr h); void DeleteTab(IntPtr h); void ActivateTab(IntPtr h); void SetActiveAlt(IntPtr h); }
+    [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")] class TaskbarListObj { }
+    static ITaskbarList bar;
+    static ITaskbarList Bar()
+    {
+        if (bar == null) { try { bar = (ITaskbarList)new TaskbarListObj(); bar.HrInit(); } catch { bar = null; } }
+        return bar;
+    }
+    static readonly Dictionary<long, bool> hadAppWin = new Dictionary<long, bool>();
+    public static void HideTab(IntPtr h)
+    {
+        try
+        {
+            int ex = GetWindowLong(h, -20);
+            if ((ex & 0x40000) != 0) { hadAppWin[h.ToInt64()] = true; SetWindowLong(h, -20, ex & ~0x40000); }
+            var b = Bar(); if (b != null) b.DeleteTab(h);
+        }
+        catch { }
+    }
+    public static void ShowTab(IntPtr h)
+    {
+        try
+        {
+            if (hadAppWin.Remove(h.ToInt64())) SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x40000);
+            var b = Bar(); if (b != null) b.AddTab(h);
+        }
+        catch { }
+    }
+
     public static int Attach(IntPtr h, IntPtr owner)
     {
         ShowWindow(h, 9);
+        HideTab(h);
         int old = GetWindowLong(h, GWL_STYLE);
         int s = (old & ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CHILD)) | WS_POPUP;
         SetWindowLong(h, GWL_STYLE, s);
         SetOwner(h, owner);
         SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, NOSIZE | NOMOVE | NOZ | NOACT | FRAME);
+        HideTab(h);
         return old;
     }
 
@@ -201,6 +234,7 @@ static class W
         SetWindowLong(h, GWL_STYLE, oldStyle);
         SetWindowPos(h, IntPtr.Zero, x, y, w, hh, NOZ | FRAME | 0x4000);
         ShowWindowAsync(h, 5);
+        ShowTab(h);
     }
 }
 
@@ -1420,7 +1454,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -1595,6 +1629,7 @@ class MainForm : Form
         updBtn.Click += delegate
         {
             string exe = File.Exists(Updater.InstalledExe) ? Updater.InstalledExe : Application.ExecutablePath;
+            restarting = true;
             Close();                       // 붙어 있던 앱들을 먼저 정리하고
             Program.ReleaseLock();
             try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
@@ -1625,7 +1660,27 @@ class MainForm : Form
         tabAdd.Click += delegate { AddSpace(); };
         Tip(tabAdd, "새 탭 만들기 (예: 이미지 탭에 포토샵)");
         bar.Controls.Add(tabAdd);
+        hideBtn = new IconBtn();
+        hideBtn.Ghost = true; hideBtn.Glyph = "\uE70E"; hideBtn.Radius = 8;
+        hideBtn.Click += delegate { SetBarHidden(true); SaveConfig(); };
+        Tip(hideBtn, "위쪽 막대 숨기기 (맨 위 가는 줄을 누르면 다시 보여요)");
+        bar.Controls.Add(hideBtn);
+        // 숨겼을 때 맨 위에 남는 가는 줄 — 누르면 막대가 다시 나옴
+        strip = new Panel();
+        strip.Dock = DockStyle.Top; strip.Height = 10; strip.BackColor = Th.Glass; strip.Visible = false; strip.Cursor = Cursors.Hand;
+        strip.Paint += delegate (object o, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int w = 44, x = (strip.Width - w) / 2;
+            using (var b = new SolidBrush(stripHover ? Th.Accent : Th.Line))
+            using (GraphicsPath gp = Th.RoundPath(new Rectangle(x, 3, w, 4), 2)) e.Graphics.FillPath(b, gp);
+        };
+        strip.MouseEnter += delegate { stripHover = true; strip.Invalidate(); };
+        strip.MouseLeave += delegate { stripHover = false; strip.Invalidate(); };
+        strip.Click += delegate { SetBarHidden(false); SaveConfig(); };
+        Tip(strip, "위쪽 막대 보이기");
         barBtns = new IconBtn[] { allNew, resetBtn, compToggle, setBtn };
+        Controls.Add(strip);
         Controls.Add(bar);
         BuildComposer();
 
@@ -1650,7 +1705,7 @@ class MainForm : Form
             if (fixTimer != null) fixTimer.Stop();
             try { if (hookMove != IntPtr.Zero) W.UnhookWinEvent(hookMove); if (hookLoc != IntPtr.Zero) W.UnhookWinEvent(hookLoc); if (hookFg != IntPtr.Zero) W.UnhookWinEvent(hookFg); } catch { }
             bool shift = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
-            keepOnClose = closeApps ? shift : !shift;
+            keepOnClose = restarting || (closeApps ? shift : !shift);   // 업데이트로 다시 켤 때는 앱을 닫지 않음
             // 응답 없는 앱이 있어도 RamSpirit가 꺼지지 못하고 남지 않도록 따로 처리하고 최대 3초만 기다림
             var th = new System.Threading.Thread(ReleaseAll);
             th.IsBackground = true;
@@ -1676,6 +1731,7 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#ontop") { onTop = p[1] == "1"; continue; }
+                    if (p.Length == 2 && p[0] == "#bar") { barHidden = p[1] == "0"; continue; }
                     if (p.Length == 2 && p[0] == "#ctrlenter") { ctrlEnterSend = p[1] == "1"; continue; }
                     if (p.Length == 2 && p[0] == "#startnew") { startNewChat = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#closeapps") { closeApps = p[1] != "0"; continue; }
@@ -1694,6 +1750,8 @@ class MainForm : Form
                         var a = new AppInfo(p[0], p[1], p[2], p[3]);
                         if (p.Length >= 5) a.SendPref = p[4] == "1" ? 1 : 0;
                         if (p.Length == 6) a.PreferWeb = p[5] == "web";
+                        string nm = p[0].ToLowerInvariant();
+                        if (!a.IsInstalled && (nm.Contains("web") || nm.Contains("웹"))) a.PreferWeb = true;   // 이름에 Web·웹이 들어간 칸은 웹 창으로
                         w.Apps.Add(a);
                     }
                 }
@@ -1756,6 +1814,7 @@ class MainForm : Form
             lines.Add("#icon\t" + AppIcon.Current);
             lines.Add("#ver\t" + Updater.Version);
             lines.Add("#ontop\t" + (onTop ? "1" : "0"));
+            lines.Add("#bar\t" + (barHidden ? "0" : "1"));
             lines.Add("#ctrlenter\t" + (ctrlEnterSend ? "1" : "0"));
             lines.Add("#startnew\t" + (startNewChat ? "1" : "0"));
             lines.Add("#closeapps\t" + (closeApps ? "1" : "0"));
@@ -2331,7 +2390,7 @@ class MainForm : Form
     void HandOver(Target o, Target t, string toTab)
     {
         if (!T.Contains(t)) { W.ShowWindowAsync(o.Hwnd, 0); }
-        t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = false;
+        t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = o.Web;
         t.Hidden = true; t.Pending = false; t.Lost = false; t.Lent = false; t.Missing = 0; t.Misfit = 0;
         t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false; t.MinW = 0; t.MinH = 0;
         t.WantNewChat = false; t.Closed = false; o.Closed = false;
@@ -2499,8 +2558,9 @@ class MainForm : Form
     string AskName(string title, string start)
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업", 440, 290, "확인", out body, out ok, out cancel);
+        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 290, "확인", out body, out ok, out cancel);
         TextBox name = Ui.Field(body, "탭 이름", null, 24, 4, 440 - 48);
+        name.MaxLength = 20;   // 입력할 때부터 20자까지만
         name.Text = start;
         bool done = false;
         Action go = delegate { if (name.Text.Trim().Length > 0) { done = true; f.DialogResult = DialogResult.OK; f.Close(); } };
@@ -2510,7 +2570,7 @@ class MainForm : Form
         f.ShowDialog(this);
         if (!done) return null;
         string n = name.Text.Trim().Replace("\t", " ");
-        return n.Length > 12 ? n.Substring(0, 12) : n;
+        return n.Length > 20 ? n.Substring(0, 20) : n;
     }
 
     // 앱 아이콘 바꾸기 (창·작업 표시줄·알림 영역·위쪽 로고, 바꿀 때는 바로가기도)
@@ -3227,7 +3287,16 @@ class MainForm : Form
 
     // ---------- 항상 위 ----------
     bool onTop;
-    IconBtn pinBtn;
+    IconBtn pinBtn, hideBtn;
+    Panel strip; bool stripHover, barHidden;
+    void SetBarHidden(bool h)
+    {
+        barHidden = h;
+        if (bar == null || strip == null) return;
+        bar.Visible = !h; strip.Visible = h;
+        if (!h) LayoutBar();
+        DoLayout();
+    }
     bool ctrlEnterSend;          // Ctrl+Enter로 보내기 (Enter는 줄바꿈)
     bool startNewChat = true;    // 켤 때 모든 칸을 새 대화로
     bool closeApps = true;       // 닫을 때 칸 안 앱도 같이 닫기
@@ -3529,8 +3598,9 @@ class MainForm : Form
         int r = bar.ClientSize.Width - 10;
         barBtns[3].SetBounds(r - h, y, h, h); r -= h + 4;
         verLbl.Visible = false;   // 버전은 설정 → 정보에서
-        if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
-        if (updBtn.Visible) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
+        if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 4; }
+        if (hideBtn != null) { hideBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
+        if (Updater.Ready != null) { int uw = updBtn.Need(); updBtn.SetBounds(r - uw, y, uw, h); r -= uw + 8; }
         // 탭 묶음 [AI][이미지] + [+]
         if (tabAdd != null && tabSeg != null)
         {
@@ -3572,7 +3642,7 @@ class MainForm : Form
             applyTimer = new Timer(); applyTimer.Interval = 30 * 1000;
             applyTimer.Tick += delegate
             {
-                if (Updater.Ready == null || !updBtn.Visible) return;
+                if (Updater.Ready == null) return;
                 if (IdleMs() < 5 * 60 * 1000) return;            // 쓰는 중이면 기다림
                 applyTimer.Stop();
                 updBtn.PerformClick();
@@ -3631,7 +3701,7 @@ class MainForm : Form
     void MakeTray()
     {
         tray = new NotifyIcon();
-        tray.BalloonTipClicked += delegate { if (Updater.Ready != null && updBtn.Visible) updBtn.PerformClick(); };
+        tray.BalloonTipClicked += delegate { if (Updater.Ready != null) updBtn.PerformClick(); };
         try { tray.Icon = Icon ?? Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         tray.Text = "RamSpirit v" + Updater.Version;
         var m = Ui.Menu();
@@ -3881,7 +3951,7 @@ class MainForm : Form
             bool exists = W.IsWindow(t.Hwnd);
             bool alive = exists && W.IsWindowVisible(t.Hwnd);
             if (alive && W.IsIconic(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 4); t.Rgn = ""; SyncWindows(); continue; }   // 최소화돼 있으면 칸 안에 다시 펼침
-            if (alive) { t.Missing = 0; KeepInCell(t); continue; }
+            if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0) W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
                 // 앱의 닫기(X)를 눌러서 앱이 창을 숨김 → 억지로 다시 띄우지 않고, 칸에서 눌러 다시 열 수 있게
@@ -4027,7 +4097,7 @@ class MainForm : Form
     }
 
     bool released_ = false;
-    bool keepOnClose;
+    bool keepOnClose, restarting;
     public void SafeRelease() { ReleaseAll(); }
 
     void ReleaseAll()
@@ -4135,6 +4205,7 @@ class MainForm : Form
         foreach (Target x in AllTargets()) AppIcons.Get(x.App);
         UpdateTabs();
         SetOnTop(onTop);
+        if (barHidden) SetBarHidden(true);
         try { JumpList.Make(); } catch { }
         if (Program.StartCmd == 1) CheckUpdate(true, 1500);
         CheckUpdateLater();
@@ -4301,6 +4372,8 @@ class MainForm : Form
                     // 원래 켜져 있던 앱 창은 기다리지 않고 바로 붙임 (일반 브라우저 창·이름만 비슷한 다른 창은 제외)
                     if (proc == "chrome" || proc == "msedge" || !t.IsAppWindow(kv.Value, proc)) continue;
                 }
+                bool isBrowser = proc == "chrome" || proc == "msedge";
+                if (!t.App.IsInstalled && isBrowser != t.Web) continue;   // 앱 칸은 앱 창만, 웹 칸은 웹 창만 (서로 바뀌어 붙지 않게)
                 string cls = W.ClassOf(h);
                 if (!t.App.IsInstalled && (cls == "ApplicationFrameWindow" || cls == "Windows.UI.Core.CoreWindow"))
                 {
@@ -4558,7 +4631,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.1";
+    public const string Version = "2.3.2";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
