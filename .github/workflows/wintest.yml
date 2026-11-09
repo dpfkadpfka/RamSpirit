@@ -6,6 +6,9 @@ on:
     branches: [wintest]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: windows-latest
@@ -31,8 +34,16 @@ jobs:
           # 크롬 첫 실행 안내가 뜨지 않게 한 번 켰다 끔
           Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "--no-first-run --app=file:///C:/t/pages/grok.html"; Start-Sleep 6; Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force
       - name: 점검
-        shell: pwsh
+        shell: powershell
         run: ./test/driver.ps1
+      - name: 결과를 wintest-out 브랜치에 올리기
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/o && cp -r /c/t/out/. /tmp/o/ || true
+          cd /tmp/o && git init -q && git checkout -q -b wintest-out && git add -A
+          git -c user.name=bot -c user.email=bot@x commit -qm "run ${{ github.run_id }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" wintest-out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
