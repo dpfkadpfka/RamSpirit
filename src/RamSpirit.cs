@@ -3546,16 +3546,38 @@ class MainForm : Form
         if (sendHint != null) sendHint.SetBounds(x + 14, y, Math.Max(10, r - x - 14), h);
     }
 
-    // 켜고 4초 뒤 한 번, 그 뒤로는 켜 두는 동안 30분마다 새 버전을 확인
-    Timer updTimer;
+    // 켜고 4초 뒤 한 번, 그 뒤로는 켜 두는 동안 10분마다 새 버전을 확인.
+    // 받아 둔 새 버전은 컴퓨터를 5분 넘게 안 만지고 있을 때 알아서 다시 켜면서 적용
+    Timer updTimer, applyTimer;
+    [StructLayout(LayoutKind.Sequential)] struct LastInput { public uint cbSize; public uint dwTime; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput li);
+    static int IdleMs()
+    {
+        try
+        {
+            var li = new LastInput(); li.cbSize = (uint)Marshal.SizeOf(typeof(LastInput));
+            if (!GetLastInputInfo(ref li)) return 0;
+            return (int)((uint)Environment.TickCount - li.dwTime);
+        }
+        catch { return 0; }
+    }
     void CheckUpdateLater()
     {
         CheckUpdate(false, 4000);
         if (updTimer == null)
         {
-            updTimer = new Timer(); updTimer.Interval = 30 * 60 * 1000;
+            updTimer = new Timer(); updTimer.Interval = 10 * 60 * 1000;
             updTimer.Tick += delegate { if (Updater.Ready == null) CheckUpdate(false, 0); };
             updTimer.Start();
+            applyTimer = new Timer(); applyTimer.Interval = 30 * 1000;
+            applyTimer.Tick += delegate
+            {
+                if (Updater.Ready == null || !updBtn.Visible) return;
+                if (IdleMs() < 5 * 60 * 1000) return;            // 쓰는 중이면 기다림
+                applyTimer.Stop();
+                updBtn.PerformClick();
+            };
+            applyTimer.Start();
         }
     }
     string notifiedVer;
@@ -3598,7 +3620,7 @@ class MainForm : Form
         if (tray != null && (manual || notifiedVer != ver))
         {
             notifiedVer = ver;
-            tray.ShowBalloonTip(8000, "RamSpirit 새 버전 v" + ver, "받아 두었어요. 이 알림을 누르면 다시 시작하면서 바로 적용돼요.", ToolTipIcon.Info);
+            tray.ShowBalloonTip(8000, "RamSpirit 새 버전 v" + ver, "받아 두었어요. 이 알림을 누르면 바로 적용되고, 안 눌러도 컴퓨터를 잠시 안 쓸 때 알아서 적용돼요.", ToolTipIcon.Info);
         }
     }
 
@@ -4536,7 +4558,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.0";
+    public const string Version = "2.3.1";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
