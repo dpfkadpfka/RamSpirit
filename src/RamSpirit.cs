@@ -1596,7 +1596,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -3396,6 +3396,8 @@ class MainForm : Form
                 UpdateLift(t);
                 int top = t.Top;
                 W.Place(t.Hwnd, r.X, r.Y - top, r.Width, r.Height + top);
+                // 크기가 바뀌면 잠시 뒤 한 번 더 살짝 흔들어 줌 → 앱(Claude·ChatGPT 등)이 예전 크기로만 그려 두는 일 방지
+                if (r.Width != t.LastW || r.Height + top != t.LastH) { t.LastW = r.Width; t.LastH = r.Height + top; t.NudgeAt = DateTime.Now.AddMilliseconds(700); }
                 ClipTo(t, top, r.Width, r.Height);
                 PlaceGuard(t);
                 if (t.Lift > 0 && t.HeadHost != null) W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
@@ -4347,6 +4349,13 @@ class MainForm : Form
             bool exists = W.IsWindow(t.Hwnd);
             bool alive = exists && W.IsWindowVisible(t.Hwnd);
             if (alive && W.IsIconic(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 4); t.Rgn = ""; SyncWindows(); continue; }   // 최소화돼 있으면 칸 안에 다시 펼침
+            if (alive && t.NudgeAt != DateTime.MinValue && DateTime.Now >= t.NudgeAt && dragColAt < 0 && dragRowAt < 0)
+            {
+                t.NudgeAt = DateTime.MinValue;
+                W.RECT nr; W.GetWindowRect(t.Hwnd, out nr);
+                W.Place(t.Hwnd, nr.L, nr.T, nr.R - nr.L - 1, nr.B - nr.T);
+                W.Place(t.Hwnd, nr.L, nr.T, nr.R - nr.L, nr.B - nr.T);
+            }
             if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0 && t.Proc != "chrome" && t.Proc != "msedge") W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
