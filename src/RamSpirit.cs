@@ -444,7 +444,24 @@ class IconBtn : Control
     public bool Active;      // 켜짐 상태(연보라 바탕 + 보라 아이콘)
     public bool Strike;      // 꺼짐 표시(아이콘에 사선)
     public bool Seg;         // 묶음(SegBox) 안의 버튼: 평소 바탕 없음, 켜지면 흰 바탕 + 테두리
-    public Color Tint = Color.Empty;   // 탭 색깔 (켜지면 이 색 바탕 + 흰 글자, 꺼져 있으면 이 색 글자)
+    public Color Tint = Color.Empty;
+    public bool Tools, CanDelete = true;   // 탭: 마우스를 올리면 오른쪽에 수정·삭제 아이콘
+    int toolHot;                           // 0 없음, 1 수정, 2 삭제
+    static Font smallIcon;
+    int ToolW { get { return CanDelete ? 40 : 22; } }
+    public int ToolAt(Point p)
+    {
+        if (!Tools || !hover) return 0;
+        int x0 = Width - ToolW;
+        if (p.X < x0) return 0;
+        return p.X < x0 + 20 ? 1 : (CanDelete ? 2 : 1);
+    }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        int h = ToolAt(e.Location);
+        if (h != toolHot) { toolHot = h; Invalidate(); }
+        base.OnMouseMove(e);
+    }   // 탭 색깔 (켜지면 이 색 바탕 + 흰 글자, 꺼져 있으면 이 색 글자)
     public int Radius = 9;
     bool hover, down;
     static Font iconFont;
@@ -477,7 +494,7 @@ class IconBtn : Control
 
     public void PerformClick() { OnClick(EventArgs.Empty); }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
-    protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; toolHot = 0; Invalidate(); base.OnMouseLeave(e); }
     protected override void OnMouseDown(MouseEventArgs e) { down = true; Invalidate(); base.OnMouseDown(e); }
     protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
     protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
@@ -488,7 +505,7 @@ class IconBtn : Control
     {
         if (string.IsNullOrEmpty(Text)) return Height;
         using (Graphics g = CreateGraphics())
-            return (int)((Glyph.Length > 0 ? 14 + 18 + 7 : 18) + g.MeasureString(Text, Font).Width + (Glyph.Length > 0 ? 12 : 18));
+            return (int)((Glyph.Length > 0 ? 14 + 18 + 7 : 18) + g.MeasureString(Text, Font).Width + (Glyph.Length > 0 ? 12 : 18) + (Tools ? ToolW - 6 : 0));
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -527,13 +544,30 @@ class IconBtn : Control
             if (hasText)
             {
                 SizeF ts = g.MeasureString(Text, Font);
-                float tx = Glyph.Length > 0 ? 14 + 18 + 7 : (Width - ts.Width) / 2f;
+                float room = Tools && hover ? Width - ToolW : Width;
+                float tx = Glyph.Length > 0 ? 14 + 18 + 7 : (room - ts.Width) / 2f + (Tools && hover ? 4 : 0);
                 g.DrawString(Text, Font, br, tx, (Height - ts.Height) / 2f + 1);
             }
         }
         if (Strike && !Active)
             using (var pen = new Pen(fg, 1.6f))
                 g.DrawLine(pen, gx + 1, gy + gs.Height - 4, gx + gs.Width - 3, gy + 3);
+        if (Tools && hover)
+        {
+            if (smallIcon == null) smallIcon = IconFont(8f);
+            int x0 = Width - ToolW;
+            for (int i = 1; i <= (CanDelete ? 2 : 1); i++)
+            {
+                var rc = new Rectangle(x0 + (i - 1) * 18, (Height - 18) / 2, 18, 18);
+                if (toolHot == i)
+                    using (var hb = new SolidBrush(Color.FromArgb(Active && Tint != Color.Empty ? 60 : 30, Active && Tint != Color.Empty ? Color.White : Color.Black)))
+                    using (GraphicsPath hp = Th.RoundPath(new Rectangle(rc.X, rc.Y, rc.Width - 1, rc.Height - 1), 5)) g.FillPath(hb, hp);
+                string gl = i == 1 ? "\uE70F" : "\uE711";
+                Color ic = toolHot == i && i == 2 && !(Active && Tint != Color.Empty) ? Color.FromArgb(229, 72, 77) : fg;
+                SizeF s2 = g.MeasureString(gl, smallIcon);
+                using (var ib = new SolidBrush(ic)) g.DrawString(gl, smallIcon, ib, rc.X + (rc.Width - s2.Width) / 2f + 1, rc.Y + (rc.Height - s2.Height) / 2f + 1);
+            }
+        }
     }
 }
 
@@ -2465,7 +2499,7 @@ class MainForm : Form
         {
             Workspace me = w;
             var b = new IconBtn();
-            b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7;
+            b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7; b.Tools = true; b.CanDelete = spaces.Count > 1;
             if (w.Color.Length == 7) { try { b.Tint = ColorTranslator.FromHtml(w.Color); } catch { } }
             b.Font = new Font("Malgun Gothic", 9.5f, w == cur ? FontStyle.Bold : FontStyle.Regular);
             b.MouseDown += delegate (object o, MouseEventArgs e)
@@ -2498,60 +2532,49 @@ class MainForm : Form
                 bool dragged = tabDragging;
                 tabDownX = -1; tabDragging = false; b.Cursor = Cursors.Hand;
                 if (dragged) { SaveConfig(); return; }
-                if (e.Button == MouseButtons.Right) { TabMenu(me, b); return; }
+                if (e.Button == MouseButtons.Right) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(me); }); return; }
+                int tool = b.ToolAt(e.Location);
+                if (e.Button == MouseButtons.Left && tool == 1) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(me); }); return; }
+                if (e.Button == MouseButtons.Left && tool == 2) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { AskRemoveSpace(me); }); return; }
                 if (e.Button == MouseButtons.Left) BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { SwitchTo(me); });
             };
-            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 오른쪽 클릭: 이름·색깔 바꾸기·지우기");
+            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 마우스를 올리면 수정·삭제");
             tabBtns.Add(b);
             tabSeg.Controls.Add(b);
         }
         LayoutBar();
     }
 
-    void TabMenu(Workspace w, Control at)
+    static readonly string[][] TabPalette = {
+        new[] { "기본", "" }, new[] { "빨강", "#E5484D" }, new[] { "주황", "#F76B15" }, new[] { "초록", "#30A46C" },
+        new[] { "청록", "#12A594" }, new[] { "파랑", "#3E63DD" }, new[] { "보라", "#8E4EC6" }, new[] { "분홍", "#D6409F" }, new[] { "회색", "#6F6E77" } };
+
+    void EditTab(Workspace w)
     {
-        var m = Ui.Menu();
-        var ren = new ToolStripMenuItem("이름 바꾸기...");
-        ren.Click += delegate
-        {
-            string n = AskName("탭 이름 바꾸기", w.Name);
-            if (n == null) return;
-            w.Name = n; UpdateTabs(); SaveConfig();
-        };
-        var col = new ToolStripMenuItem("탭 색깔");
-        string[][] pal = {
-            new[] { "기본", "" }, new[] { "빨강", "#E5484D" }, new[] { "주황", "#F76B15" }, new[] { "초록", "#30A46C" },
-            new[] { "청록", "#12A594" }, new[] { "파랑", "#3E63DD" }, new[] { "보라", "#8E4EC6" }, new[] { "분홍", "#D6409F" }, new[] { "회색", "#6F6E77" } };
-        foreach (string[] c in pal)
-        {
-            string hex = c[1];
-            var it = new ToolStripMenuItem(c[0]);
-            var bmp = new Bitmap(14, 14);
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                if (hex.Length > 0) using (var br = new SolidBrush(ColorTranslator.FromHtml(hex))) g.FillEllipse(br, 1, 1, 12, 12);
-                else using (var pen = new Pen(Th.Border, 1.5f)) g.DrawEllipse(pen, 1, 1, 12, 12);
-            }
-            it.Image = bmp;
-            it.Checked = w.Color.Equals(hex, StringComparison.OrdinalIgnoreCase);
-            it.Click += delegate { w.Color = hex; UpdateTabs(); SaveConfig(); };
-            col.DropDownItems.Add(it);
-        }
-        var apps = new ToolStripMenuItem("이 탭의 칸·앱 고르기...");
-        apps.Click += delegate { SwitchTo(w); OpenSettings(); };
-        var del = new ToolStripMenuItem("탭 지우기 (안의 앱도 닫혀요)");
-        del.Enabled = spaces.Count > 1;
-        del.Click += delegate { RemoveSpace(w); };
-        m.Items.Add(ren); m.Items.Add(col); m.Items.Add(apps); m.Items.Add(new ToolStripSeparator()); m.Items.Add(del);
-        m.Show(at, new Point(0, at.Height + 2));
+        string col = w.Color;
+        string n = AskTab("탭 수정", w.Name, ref col);
+        if (n == null) return;
+        w.Name = n; w.Color = col; UpdateTabs(); SaveConfig();
+    }
+
+    void AskRemoveSpace(Workspace w)
+    {
+        if (spaces.Count <= 1) return;
+        Panel body; IconBtn ok, cancel;
+        var f = Ui.Shell("탭 지우기", "「" + w.Name + "」 탭을 지우면 그 안의 앱도 닫혀요", 420, 170, "지우기", out body, out ok, out cancel);
+        bool yes = false;
+        ok.Click += delegate { yes = true; f.Close(); };
+        f.ShowDialog(this);
+        if (yes) RemoveSpace(w);
     }
 
     void AddSpace()
     {
-        string n = AskName("새 탭 만들기", "");
+        string col = "";
+        string n = AskTab("새 탭 만들기", "", ref col);
         if (n == null) return;
         var w = new Workspace(n);
+        w.Color = col;
         w.Started = true;                      // 칸은 아래 설정에서 고름
         spaces.Add(w);
         Workspace back = cur;
@@ -2592,11 +2615,34 @@ class MainForm : Form
     }
 
     // 이름 하나 묻는 작은 창
-    string AskName(string title, string start)
+    string AskTab(string title, string start, ref string color)
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 290, "확인", out body, out ok, out cancel);
+        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 350, "확인", out body, out ok, out cancel);
         TextBox name = Ui.Field(body, "탭 이름", null, 24, 4, 440 - 48);
+        var cl = new Label();
+        cl.Text = "탭 색깔"; cl.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); cl.ForeColor = Th.Text;
+        cl.AutoSize = true; cl.Location = new Point(24, 92); cl.BackColor = body.BackColor;
+        body.Controls.Add(cl);
+        string pick = color ?? "";
+        var dots = new List<Panel>();
+        for (int k = 0; k < TabPalette.Length; k++)
+        {
+            string hex = TabPalette[k][1];
+            var d = new Panel();
+            d.SetBounds(24 + k * 42, 120, 34, 34); d.BackColor = body.BackColor; d.Cursor = Cursors.Hand;
+            d.Paint += delegate (object o, PaintEventArgs e)
+            {
+                var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+                bool on = pick.Equals(hex, StringComparison.OrdinalIgnoreCase);
+                if (hex.Length > 0) using (var br = new SolidBrush(ColorTranslator.FromHtml(hex))) g.FillEllipse(br, 5, 5, 23, 23);
+                else using (var br = new SolidBrush(Color.White)) using (var pen = new Pen(Th.Border, 1.5f)) { g.FillEllipse(br, 5, 5, 23, 23); g.DrawEllipse(pen, 5, 5, 23, 23); }
+                if (on) using (var pen = new Pen(hex.Length > 0 ? ColorTranslator.FromHtml(hex) : Th.Sub, 2f)) g.DrawEllipse(pen, 1, 1, 31, 31);
+            };
+            d.Click += delegate { pick = hex; foreach (Panel x in dots) x.Invalidate(); };
+            Tip(d, TabPalette[k][0]);
+            dots.Add(d); body.Controls.Add(d);
+        }
         name.MaxLength = 20;   // 입력할 때부터 20자까지만
         name.Text = start;
         bool done = false;
@@ -2606,6 +2652,7 @@ class MainForm : Form
         f.Shown += delegate { name.Focus(); name.SelectAll(); };
         f.ShowDialog(this);
         if (!done) return null;
+        color = pick;
         string n = name.Text.Trim().Replace("\t", " ");
         return n.Length > 20 ? n.Substring(0, 20) : n;
     }
@@ -4668,7 +4715,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.4";
+    public const string Version = "2.3.5";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
