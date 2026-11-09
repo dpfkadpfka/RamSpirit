@@ -1670,6 +1670,7 @@ class MainForm : Form
         logo.SetBounds(14, 11, 18, 18);
         bar.Controls.Add(logo);
         var brand = new Label();
+        brandLbl = brand;
         brand.Text = "RamSpirit"; brand.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold); brand.ForeColor = Th.Text;
         brand.AutoSize = true; brand.BackColor = Th.Glass; brand.Location = new Point(36, 10);
         brand.Cursor = Cursors.Hand; logo.Cursor = Cursors.Hand;
@@ -3449,6 +3450,24 @@ class MainForm : Form
     // 작업 표시줄 메뉴 명령: 1 업데이트 확인 · 2 칸 나누기 화면 · 3 모두 새 대화 · 4 설정
     void RunCmd(int c)
     {
+        // 자동 점검용 명령 (RAMSPIRIT_TEST=1 일 때만): 100+n 탭 n으로 · 110 내리기 · 111 올리기 · 112 업데이트처럼 다시 켜기 · 113 빈 칸 누르기
+        if (c >= 100 && Environment.GetEnvironmentVariable("RAMSPIRIT_TEST") == "1")
+        {
+            if (c < 110) { int n = c - 100; if (n < spaces.Count) SwitchTo(spaces[n]); }
+            else if (c == 110) WindowState = FormWindowState.Minimized;
+            else if (c == 111) BringUp();
+            else if (c == 112)
+            {
+                restarting = true;
+                string exe = Application.ExecutablePath;
+                Close();
+                Program.ReleaseLock();
+                try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
+                Environment.Exit(0);
+            }
+            else if (c == 113) { foreach (Target x in T.ToArray()) if (x.Wait.Visible) x.Wait.GetType().GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(x.Wait, new object[] { EventArgs.Empty }); }
+            return;
+        }
         BringUp();
         if (c == 1) { if (Updater.Ready != null) updBtn.PerformClick(); else CheckUpdate(true, 0); }
         else if (c == 2) { if (solo >= 0 && solo < T.Count) ToggleSolo(T[solo]); }
@@ -3470,6 +3489,7 @@ class MainForm : Form
     // ---------- 항상 위 ----------
     bool onTop;
     IconBtn pinBtn, hideBtn;
+    Label brandLbl;
     Panel strip; bool stripHover, barHidden;
     void SetBarHidden(bool h)
     {
@@ -3770,25 +3790,45 @@ class MainForm : Form
     void LayoutBar()
     {
         if (barBtns == null) return;
-        int h = 28, y = (bar.Height - h) / 2, x = 132;
-        // 왼쪽 묶음: 모두 새 대화 · 칸 크기 같게 · 한 번에 보내기
-        int ix = 3;
-        for (int i = 0; i < 3; i++) { int w = barBtns[i].Need() - 8; barBtns[i].SetBounds(ix, 3, w, h - 6); ix += w + 2; }
-        toolSeg.SetBounds(x, y, ix + 1, h);
-        x += ix + 1;
-        // 오른쪽: [업데이트] [핀] 버전 [톱니]
+        int h = 28, y = (bar.Height - h) / 2;
+        // 오른쪽부터: [톱니] [핀] [숨기기] · 탭 묶음 · [+]
         int r = bar.ClientSize.Width - 10;
         barBtns[3].SetBounds(r - h, y, h, h); r -= h + 4;
         verLbl.Visible = false;   // 버전은 설정 → 정보에서
         if (pinBtn != null) { pinBtn.SetBounds(r - h, y, h, h); r -= h + 4; }
         if (hideBtn != null) { hideBtn.SetBounds(r - h, y, h, h); r -= h + 6; }
-        // 탭 묶음 [AI][이미지] + [+]
-        if (tabAdd != null && tabSeg != null)
+        if (tabAdd != null) { r -= 6; tabAdd.SetBounds(r - h, y, h, h); r -= h + 4; }
+        var tw = new List<int>();
+        int tabsW = 4;
+        foreach (IconBtn b in tabBtns) { int w = Math.Max(48, b.Need() - 4); tw.Add(w); tabsW += w + 2; }
+        // 왼쪽 도구 묶음: 자리가 모자라면 글자를 빼고 아이콘만, 그래도 모자라면 「RamSpirit」 글자도 숨김
+        int fullTools = 4, iconTools = 4 + 3 * 32;
+        for (int i = 0; i < 3; i++) { if (barBtns[i].Tag == null) barBtns[i].Tag = barBtns[i].Text; barBtns[i].Text = (string)barBtns[i].Tag; fullTools += barBtns[i].Need() - 8 + 2; }
+        int brandX = 132;
+        bool iconOnly = brandX + fullTools + 16 + tabsW > r;
+        bool noBrand = iconOnly && brandX + iconTools + 16 + tabsW > r;
+        if (brandLbl != null) brandLbl.Visible = !noBrand;
+        int x = noBrand ? 40 : brandX;
+        int ix = 3;
+        for (int i = 0; i < 3; i++)
         {
-            r -= 6;
-            tabAdd.SetBounds(r - h, y, h, h); r -= h + 4;
+            if (iconOnly) barBtns[i].Text = "";
+            int w = iconOnly ? 30 : barBtns[i].Need() - 8;
+            barBtns[i].SetBounds(ix, 3, w, h - 6); ix += w + 2;
+        }
+        toolSeg.SetBounds(x, y, ix + 1, h);
+        x += ix + 1;
+        // 탭 묶음: 그래도 자리가 모자라면 탭을 고르게 줄임
+        if (tabSeg != null)
+        {
+            int room = r - x - 12;
+            if (tabsW > room && tabBtns.Count > 0)
+            {
+                int each = Math.Max(40, (room - 4) / tabBtns.Count - 2);
+                for (int k = 0; k < tw.Count; k++) tw[k] = Math.Min(tw[k], each);
+            }
             int tx = 3;
-            foreach (IconBtn b in tabBtns) { int tw = Math.Max(48, b.Need() - 4); b.SetBounds(tx, 3, tw, h - 6); tx += tw + 2; }
+            for (int k = 0; k < tabBtns.Count; k++) { tabBtns[k].SetBounds(tx, 3, tw[k], h - 6); tx += tw[k] + 2; }
             int segW = tx + 1;
             tabSeg.SetBounds(r - segW, y, segW, h); r -= segW + 8;
             tabSeg.Visible = tabBtns.Count > 0;
@@ -4308,7 +4348,13 @@ class MainForm : Form
                 if (t.Hwnd != IntPtr.Zero && restarting)
                     hand.Add(w.Name + "\t" + k + "\t" + t.Hwnd.ToInt64() + "\t" + (t.Web ? "1" : "0") + "\t" + t.Proc);
             }
-        if (restarting) { try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { } }
+        if (restarting)
+        {
+            // 지난번에 넘겨받고 아직 안 연 탭의 창도 그대로 다음 RamSpirit에 넘김 (밖으로 꺼내 보이지 않게)
+            foreach (KeyValuePair<string, string[]> e in handoff)
+                if (W.IsWindow(new IntPtr(long.Parse(e.Value[2])))) hand.Add(string.Join("\t", e.Value));
+            try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { }
+        }
 
         // 앱마다 따로 처리 → 응답 없는 앱 하나 때문에 다른 앱 창이 제목 줄 없는 채로 남지 않게
         var jobs = new List<System.Threading.Thread>();
@@ -4340,12 +4386,13 @@ class MainForm : Form
         }
         if (allDone) { try { File.Delete(attachedFile); } catch { } }   // 못 끝낸 창이 있으면 다음에 켤 때 되돌림
         // 다시 켠 뒤 아직 안 연 탭에 넘겨받은 창이 남아 있으면 정리
-        foreach (KeyValuePair<string, string[]> e in handoff)
-        {
-            IntPtr h = new IntPtr(long.Parse(e.Value[2]));
-            if (!W.IsWindow(h)) continue;
-            if (keep) W.ShowWindowAsync(h, 5); else W.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
-        }
+        if (!restarting)
+            foreach (KeyValuePair<string, string[]> e in handoff)
+            {
+                IntPtr h = new IntPtr(long.Parse(e.Value[2]));
+                if (!W.IsWindow(h)) continue;
+                if (keep) W.ShowWindowAsync(h, 5); else W.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
+            }
         // 앱을 바꾸면서 최소화해 둔 예전 창도 같이 닫기
         if (!keep) foreach (long h in released) W.PostMessage(new IntPtr(h), 0x0010, IntPtr.Zero, IntPtr.Zero);
     }
@@ -4982,7 +5029,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.13";
+    public const string Version = "2.3.14";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
