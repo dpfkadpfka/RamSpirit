@@ -1555,7 +1555,7 @@ class Target
             if (k.Length == 0) continue;
             string kk = k.Replace(" ", "").ToLowerInvariant();
             if (p.Length > 0 && (p.Contains(kk) || kk.Contains(p))) return true;
-            if (string.Equals(title.Trim(), k, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals((title ?? "").Trim(), k, StringComparison.OrdinalIgnoreCase)) return true;
         }
         return false;
     }
@@ -1581,7 +1581,7 @@ class Target
         foreach (string k in App.Keys.Split('|'))
         {
             if (k.Length == 0) continue;
-            if (title.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (title != null && title.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (App.IsInstalled && proc != null && proc.Equals(k, StringComparison.OrdinalIgnoreCase)) return true;
         }
         return false;
@@ -4396,12 +4396,12 @@ class MainForm : Form
     void OnFirstShown()
     {
         try { HookWindows(); } catch { }
-        SetComposer(compOpen);
-        DoLayout();
-        Application.DoEvents();
         timer = new Timer();
         timer.Interval = 300;
         timer.Tick += delegate { Tick(); };
+        SetComposer(compOpen);
+        DoLayout();
+        Application.DoEvents();
         // 칸 안의 앱이 닫혔는지 1초마다 확인
         watch = new Timer();
         watch.Interval = 1000;
@@ -4660,7 +4660,7 @@ class MainForm : Form
             System.Threading.Thread.Sleep(250);
         }
         start = DateTime.Now;
-        timer.Start();
+        if (timer != null) timer.Start();
     }
 
     void Tick()
@@ -4982,7 +4982,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.12";
+    public const string Version = "2.3.13";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
@@ -5149,7 +5149,8 @@ public static class Program
             return;
         }
         // 오류로 갑자기 꺼져도 붙어 있던 앱 창을 원래대로 돌려놓음
-        Application.ThreadException += delegate (object o, System.Threading.ThreadExceptionEventArgs e) { ErrLog(e.Exception); try { form.SafeRelease(); } catch { } };
+        // 화면 쪽 오류는 기록만 하고 계속 씀 (예전엔 여기서 칸 안 앱을 모두 빼 버려서 창이 튀어나왔음)
+        Application.ThreadException += delegate (object o, System.Threading.ThreadExceptionEventArgs e) { ErrLog(e.Exception); };
         AppDomain.CurrentDomain.UnhandledException += delegate (object o, UnhandledExceptionEventArgs e) { ErrLog(e.ExceptionObject); try { form.SafeRelease(); } catch { } };
         Application.Run(form);
         try { form.SafeRelease(); } catch { }   // 창이 닫히지 않고 끝나도 칸 안 앱은 정리
