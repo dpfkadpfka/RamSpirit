@@ -3449,6 +3449,24 @@ class MainForm : Form
     // 작업 표시줄 메뉴 명령: 1 업데이트 확인 · 2 칸 나누기 화면 · 3 모두 새 대화 · 4 설정
     void RunCmd(int c)
     {
+        // 자동 점검용 명령 (RAMSPIRIT_TEST=1 일 때만): 100+n 탭 n으로 · 110 내리기 · 111 올리기 · 112 업데이트처럼 다시 켜기 · 113 빈 칸 누르기
+        if (c >= 100 && Environment.GetEnvironmentVariable("RAMSPIRIT_TEST") == "1")
+        {
+            if (c < 110) { int n = c - 100; if (n < spaces.Count) SwitchTo(spaces[n]); }
+            else if (c == 110) WindowState = FormWindowState.Minimized;
+            else if (c == 111) BringUp();
+            else if (c == 112)
+            {
+                restarting = true;
+                string exe = Application.ExecutablePath;
+                Close();
+                Program.ReleaseLock();
+                try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
+                Environment.Exit(0);
+            }
+            else if (c == 113) { foreach (Target x in T.ToArray()) if (x.Wait.Visible) x.Wait.GetType().GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(x.Wait, new object[] { EventArgs.Empty }); }
+            return;
+        }
         BringUp();
         if (c == 1) { if (Updater.Ready != null) updBtn.PerformClick(); else CheckUpdate(true, 0); }
         else if (c == 2) { if (solo >= 0 && solo < T.Count) ToggleSolo(T[solo]); }
