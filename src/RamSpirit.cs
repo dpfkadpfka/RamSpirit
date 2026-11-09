@@ -1536,7 +1536,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -1795,6 +1795,25 @@ class MainForm : Form
             th.Join(3000);
         };
         Shown += delegate { OnFirstShown(); };
+        // RamSpirit를 내리면(최소화) 칸 안 앱 창도 같이 숨기고, 다시 올리면 같이 보이게
+        Resize += delegate
+        {
+            bool mini = WindowState == FormWindowState.Minimized;
+            if (mini == appsMini) return;
+            appsMini = mini;
+            foreach (Target t in AllTargets())
+            {
+                if (t.Hwnd == IntPtr.Zero) continue;
+                if (mini)
+                {
+                    if (t.HeadHost != null) t.HeadHost.Hide();
+                    if (t.Guard != null) t.Guard.Hide();
+                    if (!t.Hidden && W.IsWindowVisible(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 0); t.MiniHidden = true; }
+                }
+                else if (t.MiniHidden) { t.MiniHidden = false; if (T.Contains(t) && !t.Closed && !t.TooSmall) W.ShowWindowAsync(t.Hwnd, 4); }
+            }
+            if (!mini) { foreach (Target t in T) t.Rgn = ""; SyncWindows(); ReshowSoon(); }
+        };
     }
 
     // ---------- 설정 저장/불러오기 (apps.txt: 이름 TAB 찾을단어 TAB 주소 TAB 색) ----------
@@ -4261,7 +4280,7 @@ class MainForm : Form
     }
 
     bool released_ = false;
-    bool keepOnClose, restarting;
+    bool keepOnClose, restarting, appsMini;
     public void SafeRelease() { ReleaseAll(); }
 
     void ReleaseAll()
@@ -4930,7 +4949,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.9";
+    public const string Version = "2.3.10";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
@@ -5100,6 +5119,7 @@ public static class Program
         Application.ThreadException += delegate (object o, System.Threading.ThreadExceptionEventArgs e) { ErrLog(e.Exception); try { form.SafeRelease(); } catch { } };
         AppDomain.CurrentDomain.UnhandledException += delegate (object o, UnhandledExceptionEventArgs e) { ErrLog(e.ExceptionObject); try { form.SafeRelease(); } catch { } };
         Application.Run(form);
+        try { form.SafeRelease(); } catch { }   // 창이 닫히지 않고 끝나도 칸 안 앱은 정리
         GC.KeepAlive(mutex);
         ReleaseLock();
         Environment.Exit(0);   // 남아 있는 작업이 있어도 확실히 끝냄 (다시 시작이 막히지 않게)
