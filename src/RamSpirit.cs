@@ -2425,6 +2425,7 @@ class MainForm : Form
             reshow = new Timer(); reshow.Interval = 350;
             reshow.Tick += delegate
             {
+                bool first = reshowLeft == 4 || reshowLeft == 2;
                 if (--reshowLeft <= 0) reshow.Stop();
                 if (WindowState == FormWindowState.Minimized) return;
                 foreach (Target t in T)
@@ -2432,6 +2433,12 @@ class MainForm : Form
                     if (t.Hwnd == IntPtr.Zero || !t.Cell.Visible || t.TooSmall || t.Closed) continue;
                     if (W.IsIconic(t.Hwnd) || !W.IsWindowVisible(t.Hwnd)) W.ShowWindowAsync(t.Hwnd, 4);
                     t.Hidden = false; t.Rgn = "";
+                    if (first)
+                    {
+                        // 숨겨 둔 사이 크기가 바뀐 앱(ChatGPT 등)은 화면을 예전 크기로만 그림 → 크기를 살짝 흔들어 다시 그리게 함
+                        W.RECT wr; W.GetWindowRect(t.Hwnd, out wr);
+                        W.Place(t.Hwnd, wr.L, wr.T, wr.R - wr.L, Math.Max(50, wr.B - wr.T - 2));
+                    }
                 }
                 SyncWindows();
             };
@@ -4631,7 +4638,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.2";
+    public const string Version = "2.3.3";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
