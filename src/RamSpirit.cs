@@ -448,13 +448,14 @@ class IconBtn : Control
     public bool Tools, CanDelete = true;   // 탭: 마우스를 올리면 오른쪽에 수정·삭제 아이콘
     int toolHot;                           // 0 없음, 1 수정, 2 삭제
     static Font smallIcon;
-    int ToolW { get { return CanDelete ? 40 : 22; } }
+    const int TB = 24, TGap = 6;           // 수정·삭제 단추 너비, 사이 간격
+    int ToolW { get { return (CanDelete ? TB * 2 + TGap : TB) + 5; } }
+    Rectangle ToolRect(int i) { int x0 = Width - ToolW; return new Rectangle(x0 + (i - 1) * (TB + TGap), 2, TB, Height - 4); }
     public int ToolAt(Point p)
     {
         if (!Tools || !hover) return 0;
-        int x0 = Width - ToolW;
-        if (p.X < x0) return 0;
-        return p.X < x0 + 20 ? 1 : (CanDelete ? 2 : 1);
+        for (int i = 1; i <= (CanDelete ? 2 : 1); i++) if (ToolRect(i).Contains(p)) return i;
+        return 0;
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -554,16 +555,19 @@ class IconBtn : Control
                 g.DrawLine(pen, gx + 1, gy + gs.Height - 4, gx + gs.Width - 3, gy + 3);
         if (Tools && hover)
         {
-            if (smallIcon == null) smallIcon = IconFont(8f);
-            int x0 = Width - ToolW;
+            if (smallIcon == null) smallIcon = IconFont(9.5f);
+            bool solid = Active && Tint != Color.Empty;
             for (int i = 1; i <= (CanDelete ? 2 : 1); i++)
             {
-                var rc = new Rectangle(x0 + (i - 1) * 18, (Height - 18) / 2, 18, 18);
-                if (toolHot == i)
-                    using (var hb = new SolidBrush(Color.FromArgb(Active && Tint != Color.Empty ? 60 : 30, Active && Tint != Color.Empty ? Color.White : Color.Black)))
-                    using (GraphicsPath hp = Th.RoundPath(new Rectangle(rc.X, rc.Y, rc.Width - 1, rc.Height - 1), 5)) g.FillPath(hb, hp);
+                Rectangle rc = ToolRect(i);
+                bool hot = toolHot == i;
+                Color hotBg = i == 1 ? Color.FromArgb(62, 99, 221) : Color.FromArgb(229, 72, 77);
+                // 평소: 연한 단추 / 마우스를 올리면: 수정은 파랑, 삭제는 빨강 바탕에 흰 아이콘
+                Color bb = hot ? (solid ? Color.White : hotBg) : solid ? Color.FromArgb(55, Color.White) : Color.FromArgb(18, Color.Black);
+                using (var hb = new SolidBrush(bb))
+                using (GraphicsPath hp = Th.RoundPath(new Rectangle(rc.X, rc.Y, rc.Width - 1, rc.Height - 1), 6)) g.FillPath(hb, hp);
                 string gl = i == 1 ? "\uE70F" : "\uE711";
-                Color ic = toolHot == i && i == 2 && !(Active && Tint != Color.Empty) ? Color.FromArgb(229, 72, 77) : fg;
+                Color ic = hot ? (solid ? hotBg : Color.White) : solid ? Color.White : i == 2 ? Color.FromArgb(200, 60, 66) : Th.Text;
                 SizeF s2 = g.MeasureString(gl, smallIcon);
                 using (var ib = new SolidBrush(ic)) g.DrawString(gl, smallIcon, ib, rc.X + (rc.Width - s2.Width) / 2f + 1, rc.Y + (rc.Height - s2.Height) / 2f + 1);
             }
@@ -4786,7 +4790,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.6";
+    public const string Version = "2.3.7";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
