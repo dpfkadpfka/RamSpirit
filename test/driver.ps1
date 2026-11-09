@@ -80,7 +80,7 @@ function Snap($name, [bool]$expectClean = $true, [int]$expectVis = -1) {
 function Start-Ram { $env:RAMSPIRIT_TEST = "1"; Start-Process "C:\t\RamSpirit.exe" }
 
 function Grok($c) { Set-Content -Path "C:\t\cmd_GrokBot.txt" -Value $c }
-Start-Ram; Start-Sleep 25; Snap "01-켜기" $true 2
+Start-Ram; Start-Sleep 3; Snap "00-켜는중" $false; Start-Sleep 22; Snap "01-켜기" $true 2
 [WT]::Cmd(101); Start-Sleep 12; Snap "02-탭2" $true 2
 [WT]::Cmd(102); Start-Sleep 15; Snap "03-탭3" $true 4
 [WT]::Cmd(100); Start-Sleep 10; Snap "04-탭1로"

@@ -1484,7 +1484,8 @@ class LoadCover : Form
     {
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
-        StartPosition = FormStartPosition.Manual;   // 맨 위 고정(TopMost) 대신 RamSpirit 창에 딸린 창 → 내리면 같이 사라짐
+        TopMost = true;   // 켜지는 앱 창이 잠깐 화면 가운데에 떠도 가림막 뒤로 (내리면 FollowCover가 숨김)
+        StartPosition = FormStartPosition.Manual;
         BackColor = Th.Bg1;
         DoubleBuffered = true;
     }
@@ -5195,7 +5196,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.15";
+    public const string Version = "2.3.16";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
