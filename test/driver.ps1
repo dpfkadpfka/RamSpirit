@@ -1,4 +1,4 @@
-# RamSpirit 자동 점검: 시나리오마다 창 상태를 기록하고 화면을 찍음
+﻿# RamSpirit 자동 점검: 시나리오마다 창 상태를 기록하고 화면을 찍음
 $ErrorActionPreference = 'Continue'
 Add-Type -ReferencedAssemblies System.Drawing,System.Windows.Forms -TypeDefinition @'
 using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Diagnostics; using System.Drawing;
