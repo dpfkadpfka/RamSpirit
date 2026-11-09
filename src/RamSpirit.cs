@@ -2711,7 +2711,7 @@ class MainForm : Form
             tabPop.Region = null;
             popEdit = new IconBtn(); popEdit.Glyph = "\uE70F"; popEdit.Ghost = true; popEdit.Radius = 7; popEdit.HoverColor = Color.FromArgb(62, 99, 221);
             popDel = new IconBtn(); popDel.Glyph = "\uE74D"; popDel.Ghost = true; popDel.Radius = 7; popDel.HoverColor = Color.FromArgb(229, 72, 77);
-            popEdit.SetBounds(4, 4, 30, 26); popDel.SetBounds(38, 4, 30, 26);
+            popEdit.SetBounds(3, 3, 30, 24); popDel.SetBounds(35, 3, 30, 24);
             popEdit.Click += delegate { tabPop.Hide(); Workspace w = popFor; BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(w); }); };
             popDel.Click += delegate { tabPop.Hide(); Workspace w = popFor; BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { AskRemoveSpace(w); }); };
             Tip(popEdit, "이름·색깔·보이는 것 바꾸기"); Tip(popDel, "이 탭 지우기");
@@ -2722,14 +2722,14 @@ class MainForm : Form
                 using (var pen = new Pen(Th.Border)) using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, tabPop.Width - 1, tabPop.Height - 1), 9)) e.Graphics.DrawPath(pen, gp);
             };
         }
-        popDel.Visible = spaces.Count > 1;
-        int pw = popDel.Visible ? 72 : 38;
+        bool canDel = spaces.Count > 1;
+        popDel.Visible = canDel;
+        int pw = canDel ? 68 : 36, ph = 30;
         Rectangle tr = popTab.RectangleToScreen(popTab.ClientRectangle);
-        int y = tr.Top - 34 - 2;
-        Rectangle scr = Screen.FromControl(this).WorkingArea;
-        if (y < scr.Top) y = tr.Bottom + 4;    // 위에 자리가 없으면 아래에
-        tabPop.Bounds = new Rectangle(tr.Left + (tr.Width - pw) / 2, y, pw, 34);
-        using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, pw, 34), 9)) tabPop.Region = new Region(gp);
+        Rectangle scr = Screen.FromControl(this).Bounds;
+        int y = Math.Max(scr.Top, tr.Top - ph - 2);   // 탭 위쪽에 (창을 꽉 채웠으면 맨 위 제목 줄 자리에)
+        tabPop.Bounds = new Rectangle(tr.Left + (tr.Width - pw) / 2, y, pw, ph);
+        using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, pw, ph), 9)) tabPop.Region = new Region(gp);
         if (!tabPop.Visible) tabPop.Show(this);
         W.SetWindowPos(tabPop.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     }

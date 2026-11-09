@@ -55,7 +55,7 @@ public static class WT {
       string pn = ""; try { pn = Process.GetProcessById(pid).ProcessName.ToLower(); } catch { }
       if (pn != "ramspirit" || !IsWindowVisible(h)) return true;
       RECT r; GetWindowRect(h, out r);
-      if (r.R - r.L == 72 && r.B - r.T == 34) { res = new int[] { r.L, r.T }; return false; }
+      if (r.R - r.L == 68 && r.B - r.T == 30) { res = new int[] { r.L, r.T }; return false; }
       return true; }, IntPtr.Zero);
     return res;
   }
@@ -86,8 +86,8 @@ Start-Ram; Start-Sleep 25; Snap "01-켜기" $true 2
 [WT]::Cmd(100); Start-Sleep 10; Snap "04-탭1로"
 [WT]::Cmd(3);   Start-Sleep 15; Snap "05-모두새대화"
 # 탭에 마우스를 올리면 위쪽에 수정·삭제가 뜨는지, 수정을 누르면 창이 뜨는지
-[WT]::SetCursorPos(660, 41); Start-Sleep 2; Snap "H1-탭에마우스"
-$pp = [WT]::FindPop(); if ($pp -eq $null) { $script:fails += "H1 : 탭 위 수정·삭제 단추가 안 뜸" } else { "팝업 위치 $($pp[0]),$($pp[1])" | Out-File $log -Append -Encoding utf8; [WT]::Click($pp[0] + 19, $pp[1] + 17); Start-Sleep 2; Snap "H2-수정창"; Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep 1 }
+[WT]::SetCursorPos(650, 45); Start-Sleep 2; Snap "H1-탭에마우스"
+$pp = [WT]::FindPop(); if ($pp -eq $null) { $script:fails += "H1 : 탭 위 수정·삭제 단추가 안 뜸" } else { "팝업 위치 $($pp[0]),$($pp[1])" | Out-File $log -Append -Encoding utf8; [WT]::Click($pp[0] + 18, $pp[1] + 15); Start-Sleep 2; Snap "H2-수정창"; Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep 1 }
 [WT]::SetCursorPos(500, 500); Start-Sleep 1
 [WT]::Cmd(110); Start-Sleep 4;  Snap "06-내리기"
 if ((Get-Content $log -Raw) -match "(?s)===== 06-내리기 =====.*?\[칸안\][^\n]*보임=True") { $script:fails += "06-내리기 : 내렸는데 칸 안 앱 창이 보임" }
