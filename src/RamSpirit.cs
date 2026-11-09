@@ -1197,6 +1197,40 @@ static class Ui
 }
 
 // 앱 창의 닫기 버튼 등을 덮는 작은 가림판 (눌러도 아무 일 없음)
+// 칸 제목 줄을 담아 앱 창 위에 띄우는 창 (누르거나 끌어도 RamSpirit 창이 앞으로 튀지 않게)
+class HeadHostForm : Form
+{
+    public HeadHostForm()
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Th.Card;
+    }
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= 0x08000000 | 0x00000080;   // NOACTIVATE · TOOLWINDOW
+            return cp;
+        }
+    }
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        // 위쪽 두 모서리만 칸처럼 둥글게
+        int r = 12, w = Width, h = Height;
+        if (w <= 0 || h <= 0) return;
+        var p = new GraphicsPath();
+        p.AddArc(0, 0, r * 2, r * 2, 180, 90);
+        p.AddArc(w - r * 2, 0, r * 2, r * 2, 270, 90);
+        p.AddLine(w, r, w, h); p.AddLine(w, h, 0, h); p.CloseFigure();
+        Region = new Region(p);
+    }
+}
+
 class GuardForm : Form
 {
     Bitmap strip;
@@ -1385,7 +1419,10 @@ class Target
     public int HideTop = -1;   // -1 자동, 0 보이기, 1 감추기 (칸 메뉴에서 고름)
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
-    public int Top { get { return 0; } }
+    public int Top { get { return Lift; } }
+    public int Lift;          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
+    public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
     public Rectangle CapBtns = Rectangle.Empty;   // 앱의 최소화·최대화·닫기 버튼 자리 (창 기준)
     public Form Guard;                           // 그 버튼들을 덮는 가림판
@@ -2243,6 +2280,7 @@ class MainForm : Form
             t.Cell.Visible = false;
             if (t.Hwnd != IntPtr.Zero && !t.Hidden) { W.ShowWindowAsync(t.Hwnd, 0); t.Hidden = true; }
             if (t.Guard != null) t.Guard.Hide();
+            if (t.HeadHost != null) t.HeadHost.Hide();
         }
         cur = w; T = w.T; colW = w.ColW; rowW = w.RowW; solo = w.Solo;
         if (!w.Started)
@@ -2449,6 +2487,7 @@ class MainForm : Form
                 else { W.CloseApp(t.Hwnd, t.OldStyle); used.Remove(t.Hwnd.ToInt64()); }
             }
             area.Controls.Remove(t.Cell); t.Cell.Dispose();
+            if (t.HeadHost != null) { t.HeadHost.Dispose(); t.HeadHost = null; }
         }
         w.T.Clear();
         spaces.Remove(w);
@@ -2492,6 +2531,7 @@ class MainForm : Form
         Color[] old = Th.Snapshot();
         Th.Set(name);
         Th.Recolor(this, old, Th.Snapshot());
+        foreach (Target t in AllTargets()) if (t.HeadHost != null && !t.HeadHost.IsDisposed) Th.Recolor(t.HeadHost, old, Th.Snapshot());
         BackColor = Th.Bg1;
         foreach (Target t in T) PaintToggle(t);
         area.Invalidate(true);
@@ -2508,6 +2548,7 @@ class MainForm : Form
         {
             Target t = T[T.Count - 1];
             LetGo(t);
+            if (t.HeadHost != null) { t.HeadHost.Dispose(); t.HeadHost = null; }
             area.Controls.Remove(t.Cell);
             t.Cell.Dispose();
             T.RemoveAt(T.Count - 1);
@@ -2961,10 +3002,12 @@ class MainForm : Form
                     if (r.Width + 10 >= t.MinW && r.Height + 10 >= t.MinH) { t.TooSmall = false; t.Misfit = 0; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; }
                     else continue;
                 }
+                UpdateLift(t);
                 int top = t.Top;
                 W.Place(t.Hwnd, r.X, r.Y - top, r.Width, r.Height + top);
                 ClipTo(t, top, r.Width, r.Height);
                 PlaceGuard(t);
+                if (t.Lift > 0 && t.HeadHost != null) W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
                 if (t.Hidden) { W.ShowWindowAsync(t.Hwnd, 8); t.Hidden = false; }
             }
             else if (!t.Hidden)
@@ -2972,8 +3015,73 @@ class MainForm : Form
                 W.ShowWindowAsync(t.Hwnd, 0);
                 t.Hidden = true;
                 if (t.Guard != null) t.Guard.Hide();
+                if (t.HeadHost != null) t.HeadHost.Hide();
             }
+            else if (t.HeadHost != null && t.HeadHost.Visible) t.HeadHost.Hide();
         }
+    }
+
+    // 웹 창(크롬 앱 창)은 크롬이 그리는 제목 줄(제목·최소화·닫기)이 티가 나서,
+    // 칸 제목 줄을 작은 창으로 앱 창 위에 띄우고 앱 창을 그만큼 위로 올려 크롬 제목 줄을 그 밑에 감춤
+    void UpdateLift(Target t)
+    {
+        int want = 0;
+        if (t.Web && !t.CapBtns.IsEmpty && !t.Hidden && t.Cell.Visible && Visible && WindowState != FormWindowState.Minimized)
+            want = Math.Min(t.CapBtns.Y + t.CapBtns.Height, t.Head.Height);
+        if (want < 12) want = 0;
+        if (want > 0)
+        {
+            if (t.HeadHost == null || t.HeadHost.IsDisposed)
+            {
+                var hf = new HeadHostForm();
+                hf.Owner = this;
+                t.HeadHost = hf;
+            }
+            if (t.HeadSpace == null)
+            {
+                t.HeadSpace = new Panel();
+                t.HeadSpace.Dock = DockStyle.Top; t.HeadSpace.Height = t.Head.Height; t.HeadSpace.BackColor = Th.Card;
+            }
+            if (t.Head.Parent != t.HeadHost)
+            {
+                int idx = t.Cell.Controls.GetChildIndex(t.Head);
+                t.Cell.Controls.Add(t.HeadSpace);
+                t.Cell.Controls.SetChildIndex(t.HeadSpace, idx);
+                t.HeadHost.Controls.Add(t.Head);
+                t.Head.Dock = DockStyle.Fill;
+            }
+            t.HeadHost.BackColor = Th.Card;
+            Rectangle hr = t.HeadSpace.RectangleToScreen(t.HeadSpace.ClientRectangle);
+            // 칸 안쪽 여백(좌우 5)까지 덮어서 칸과 이어 보이게
+            hr = new Rectangle(hr.X - t.Cell.Padding.Left, hr.Y, hr.Width + t.Cell.Padding.Horizontal, hr.Height);
+            if (t.HeadHost.Bounds != hr) t.HeadHost.Bounds = hr;
+            t.HeadHost.Padding = new Padding(t.Cell.Padding.Left, 0, t.Cell.Padding.Right, 0);
+            if (!t.HeadHost.Visible) t.HeadHost.Show();
+            t.Lift = want;
+        }
+        else
+        {
+            if (t.HeadHost != null && t.Head.Parent == t.HeadHost)
+            {
+                int idx = t.Cell.Controls.GetChildIndex(t.HeadSpace);
+                t.HeadHost.Controls.Remove(t.Head);
+                t.Head.Dock = DockStyle.Top;
+                t.Cell.Controls.Add(t.Head);
+                t.Cell.Controls.SetChildIndex(t.Head, idx);
+                t.Cell.Controls.Remove(t.HeadSpace);
+            }
+            if (t.HeadHost != null && t.HeadHost.Visible) t.HeadHost.Hide();
+            if (t.Lift != 0) { t.Lift = 0; t.Rgn = ""; }
+        }
+    }
+
+    // 앱 창이 앞으로 나와도(눌러서 쓰는 중) 칸 제목 줄이 그 위에 있게
+    void RaiseHeads()
+    {
+        if (!OursInFront()) return;
+        foreach (Target t in T)
+            if (t.Lift > 0 && t.Hwnd != IntPtr.Zero && t.HeadHost != null && t.HeadHost.Visible)
+                W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
     }
 
     // 칸에 보이는 부분만 남기고 잘라 냄(바뀌었을 때만)
@@ -3018,6 +3126,7 @@ class MainForm : Form
             }
             catch { }
             PlaceGuard(t);
+            if (t.Web) { t.Rgn = ""; SyncWindows(); }   // 웹 창이면 크롬 제목 줄을 칸 제목 줄 밑으로 감춤
         });
 #endif
     }
@@ -3948,7 +4057,7 @@ class MainForm : Form
     void OnWinEvent(IntPtr hook, uint ev, IntPtr h, int idObject, int idChild, uint thread, uint time)
     {
         if (idObject != 0 || h == IntPtr.Zero) return;
-        if (ev == 0x0003) { RaiseGuards(); return; }
+        if (ev == 0x0003) { RaiseGuards(); RaiseHeads(); return; }
         Target t = null;
         foreach (Target x in T) if (x.Hwnd == h) { t = x; break; }
         if (t == null) return;
@@ -4427,7 +4536,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.2.4";
+    public const string Version = "2.3.0";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
