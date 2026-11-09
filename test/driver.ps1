@@ -45,6 +45,20 @@ public static class WT {
     sb.AppendLine("  => 밖에 떠 있는 앱 창 " + s2 + "개, 그중 제목줄 없는 창 " + n2 + "개, 칸 안에 보이는 창 " + vin + "개");
     return sb.ToString();
   }
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] static extern void mouse_event(uint f, int x, int y, uint d, UIntPtr e);
+  public static void Click(int x, int y) { SetCursorPos(x, y); System.Threading.Thread.Sleep(150); mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
+  public static int[] FindPop() {
+    int[] res = null;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      int pid; GetWindowThreadProcessId(h, out pid);
+      string pn = ""; try { pn = Process.GetProcessById(pid).ProcessName.ToLower(); } catch { }
+      if (pn != "ramspirit" || !IsWindowVisible(h)) return true;
+      RECT r; GetWindowRect(h, out r);
+      if (r.R - r.L == 72 && r.B - r.T == 34) { res = new int[] { r.L, r.T }; return false; }
+      return true; }, IntPtr.Zero);
+    return res;
+  }
   public static void Shot(string path) {
     var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
     using (var bmp = new Bitmap(b.Width, b.Height)) { using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size); bmp.Save(path); }
@@ -71,6 +85,10 @@ Start-Ram; Start-Sleep 25; Snap "01-켜기" $true 2
 [WT]::Cmd(102); Start-Sleep 15; Snap "03-탭3" $true 4
 [WT]::Cmd(100); Start-Sleep 10; Snap "04-탭1로"
 [WT]::Cmd(3);   Start-Sleep 15; Snap "05-모두새대화"
+# 탭에 마우스를 올리면 위쪽에 수정·삭제가 뜨는지, 수정을 누르면 창이 뜨는지
+[WT]::SetCursorPos(660, 41); Start-Sleep 2; Snap "H1-탭에마우스"
+$pp = [WT]::FindPop(); if ($pp -eq $null) { $script:fails += "H1 : 탭 위 수정·삭제 단추가 안 뜸" } else { "팝업 위치 $($pp[0]),$($pp[1])" | Out-File $log -Append -Encoding utf8; [WT]::Click($pp[0] + 19, $pp[1] + 17); Start-Sleep 2; Snap "H2-수정창"; Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep 1 }
+[WT]::SetCursorPos(500, 500); Start-Sleep 1
 [WT]::Cmd(110); Start-Sleep 4;  Snap "06-내리기"
 if ((Get-Content $log -Raw) -match "(?s)===== 06-내리기 =====.*?\[칸안\][^\n]*보임=True") { $script:fails += "06-내리기 : 내렸는데 칸 안 앱 창이 보임" }
 [WT]::Cmd(111); Start-Sleep 6;  Snap "07-올리기"
