@@ -4104,8 +4104,10 @@ class MainForm : Form
     }
 
     // 앱이 닫혔으면 칸에 「다시 열기」 안내
+    int watchTick;
     void WatchApps()
     {
+        if (++watchTick % 3 == 0) SaveAttached();
         if (WindowState == FormWindowState.Minimized) return;
         foreach (Target t in T)
         {
@@ -4278,16 +4280,36 @@ class MainForm : Form
                     hand.Add(w.Name + "\t" + k + "\t" + t.Hwnd.ToInt64() + "\t" + (t.Web ? "1" : "0") + "\t" + t.Proc);
             }
         if (restarting) { try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { } }
+
+        // 앱마다 따로 처리 → 응답 없는 앱 하나 때문에 다른 앱 창이 제목 줄 없는 채로 남지 않게
+        var jobs = new List<System.Threading.Thread>();
+        bool allDone = true;
         foreach (Target t in AllTargets())
         {
             if (t.Hwnd != IntPtr.Zero)
             {
-                if (keep) W.Detach(t.Hwnd, t.OldStyle, 80 + i * 40, 80 + i * 40, 1100, 800);
-                else W.CloseApp(t.Hwnd, t.OldStyle);
-                if (restarting) W.ShowWindowAsync(t.Hwnd, 0);   // 새 버전이 바로 다시 붙임 → 그 사이 따로 떠 보이지 않게
+                IntPtr h = t.Hwnd; int st = t.OldStyle, k = i; bool rs = restarting;
+                var th = new System.Threading.Thread(delegate ()
+                {
+                    try
+                    {
+                        if (keep) W.Detach(h, st, 80 + k * 40, 80 + k * 40, 1100, 800);
+                        else W.CloseApp(h, st);
+                        if (rs) W.ShowWindowAsync(h, 0);   // 새 버전이 바로 다시 붙임 → 그 사이 따로 떠 보이지 않게
+                    }
+                    catch { }
+                });
+                th.IsBackground = true; th.Start(); jobs.Add(th);
             }
             i++;
         }
+        DateTime until = DateTime.Now.AddMilliseconds(2500);
+        foreach (var th in jobs)
+        {
+            int left = (int)(until - DateTime.Now).TotalMilliseconds;
+            if (left <= 0 || !th.Join(left)) allDone = false;
+        }
+        if (allDone) { try { File.Delete(attachedFile); } catch { } }   // 못 끝낸 창이 있으면 다음에 켤 때 되돌림
         // 다시 켠 뒤 아직 안 연 탭에 넘겨받은 창이 남아 있으면 정리
         foreach (KeyValuePair<string, string[]> e in handoff)
         {
@@ -4363,6 +4385,7 @@ class MainForm : Form
             else SaveConfig();
             firstRun = false;
         }
+        RecoverOrphans();
         ReadHandoff();
         startupSearch = true;
         StartSearch(new List<Target>(T));
@@ -4465,8 +4488,51 @@ class MainForm : Form
         t.Pending = true;
         t.CheckAt = DateTime.Now.AddMilliseconds(800);
         Log(t.App.Name + " ← 다시 켜기 전 창 그대로");
+        BeginInvoke((System.Windows.Forms.MethodInvoker)SaveAttached);
         SyncWindows();
         return true;
+    }
+
+    // 칸에 붙인 창 목록을 파일로 적어 둠 → RamSpirit가 갑자기 꺼져도 다음에 켤 때 그 창들을 원래 모양으로 되돌림
+    string attachedFile = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit"), "attached.txt");
+    string attachedLast = "";
+    void SaveAttached()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            foreach (Target t in AllTargets())
+                if (t.Hwnd != IntPtr.Zero) sb.Append(t.Hwnd.ToInt64()).Append('\t').Append(t.OldStyle).Append("\r\n");
+            string txt = sb.ToString();
+            if (txt == attachedLast) return;
+            attachedLast = txt;
+            File.WriteAllText(attachedFile, txt, Encoding.UTF8);
+        }
+        catch { }
+    }
+    void RecoverOrphans()
+    {
+        try
+        {
+            if (!File.Exists(attachedFile)) return;
+            string[] lines = File.ReadAllLines(attachedFile, Encoding.UTF8);
+            File.Delete(attachedFile);
+            if (File.Exists(handoffFile)) return;   // 업데이트로 다시 켠 경우는 넘겨받기로 처리
+            int i = 0;
+            foreach (string line in lines)
+            {
+                string[] p = line.Split('\t');
+                long hv; int st;
+                if (p.Length < 2 || !long.TryParse(p[0], out hv) || !int.TryParse(p[1], out st)) continue;
+                IntPtr h = new IntPtr(hv);
+                if (!W.IsWindow(h)) continue;
+                W.Detach(h, st, 80 + i * 40, 80 + i * 40, 1100, 800);   // 제목 줄·닫기 단추가 다시 보이게
+                released.Add(hv);                                         // 웹 창도 다시 붙을 수 있게
+                i++;
+            }
+            if (i > 0) Log("지난번에 갑자기 꺼지면서 남은 창 " + i + "개를 원래대로 되돌림");
+        }
+        catch { }
     }
 
     bool AlreadyOpen(Target t)
@@ -4617,6 +4683,7 @@ class MainForm : Form
                 t.Wait.Visible = false;
                 t.Proc = proc ?? "";
                 if (isBrowser) t.Web = true;
+                BeginInvoke((System.Windows.Forms.MethodInvoker)SaveAttached);
                 Log(t.App.Name + " ← 창 \"" + kv.Value + "\" (" + proc + ", " + cls + ")");
                 int old = W.Attach(h, Handle);
                 if (!origStyles.ContainsKey(kv.Key)) origStyles[kv.Key] = old;   // 다시 붙여도 원래 모양 기억
@@ -4863,7 +4930,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.8";
+    public const string Version = "2.3.9";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
@@ -5030,8 +5097,8 @@ public static class Program
             return;
         }
         // 오류로 갑자기 꺼져도 붙어 있던 앱 창을 원래대로 돌려놓음
-        Application.ThreadException += delegate { try { form.SafeRelease(); } catch { } };
-        AppDomain.CurrentDomain.UnhandledException += delegate { try { form.SafeRelease(); } catch { } };
+        Application.ThreadException += delegate (object o, System.Threading.ThreadExceptionEventArgs e) { ErrLog(e.Exception); try { form.SafeRelease(); } catch { } };
+        AppDomain.CurrentDomain.UnhandledException += delegate (object o, UnhandledExceptionEventArgs e) { ErrLog(e.ExceptionObject); try { form.SafeRelease(); } catch { } };
         Application.Run(form);
         GC.KeepAlive(mutex);
         ReleaseLock();
@@ -5043,6 +5110,15 @@ public static class Program
     public static uint CmdMsg;
 
     // 「다시 시작」 때 새 RamSpirit가 바로 켜질 수 있게 잠금을 먼저 풂
+    public static void ErrLog(object ex)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RamSpirit");
+            File.AppendAllText(Path.Combine(dir, "error.log"), DateTime.Now + " v" + Updater.Version + "\r\n" + ex + "\r\n\r\n");
+        }
+        catch { }
+    }
     public static void ReleaseLock()
     {
         try { if (Lock != null) { Lock.ReleaseMutex(); Lock = null; } } catch { }
