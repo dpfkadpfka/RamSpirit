@@ -422,6 +422,7 @@ static class Th
 // 버튼 여러 개를 하나로 묶는 둥근 바탕 (탭 묶음 · 위쪽 도구 묶음)
 class SegBox : Panel
 {
+    public bool Plain;   // 바탕 없이 (북마크 줄)
     public SegBox()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
@@ -430,6 +431,7 @@ class SegBox : Panel
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (Plain) { using (var bb = new SolidBrush(BackColor)) g.FillRectangle(bb, ClientRectangle); return; }
         using (var br = new SolidBrush(Th.ChipBg))
         using (GraphicsPath p = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), 9))
             g.FillPath(br, p);
@@ -447,7 +449,9 @@ class IconBtn : Control
     public Color Tint = Color.Empty;
     public List<Image> Logos;              // 탭: 칸에 든 앱 로고들 (null이면 글자만)
     public string Grid = "";               // 탭: 칸 배치 (예: 2×2)
-    public bool Tools, CanDelete = true;   // 탭: 마우스를 올리면 오른쪽에 수정·삭제 아이콘
+    public bool Tools, CanDelete = true;
+    public bool Bookmark;
+    public Color HoverColor = Color.Empty;   // 마우스를 올리면 이 색 바탕 + 흰 아이콘                  // 탭: 크롬 북마크 줄처럼 (아이콘 + 이름, 지금 탭은 색 밑줄)   // 탭: 마우스를 올리면 오른쪽에 수정·삭제 아이콘
     int toolHot;                           // 0 없음, 1 수정, 2 삭제
     static Font smallIcon;
     const int TB = 24, TGap = 6;           // 수정·삭제 단추 너비, 사이 간격
@@ -523,12 +527,68 @@ class IconBtn : Control
             return (int)((Glyph.Length > 0 ? 14 + 18 + 7 : 18) + g.MeasureString(Text, Font).Width + (Glyph.Length > 0 ? 12 : 18) + (Tools ? ToolW - 6 : 0));
     }
 
+    void PaintBookmark(Graphics g)
+    {
+        Color line = Tint != Color.Empty ? Tint : Th.Accent;
+        if (hover || down)
+            using (var hb = new SolidBrush(Th.ChipHover))
+            using (GraphicsPath hp = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 4), 7)) g.FillPath(hb, hp);
+        Color fg = Active ? Th.Text : Th.Sub;
+        int pad = 10, x = pad, cy = (Height - 3) / 2;
+        int avail = Width - pad * 2;
+        // 앞 아이콘: 앱 로고들, 없으면 탭 색 점
+        if (Logos != null && Logos.Count > 0)
+        {
+            int ls = 15, gap = 3;
+            bool textToo = !string.IsNullOrEmpty(Text) || Grid.Length > 0;
+            int maxLogoW = textToo ? Math.Min(avail / 2, Logos.Count * (ls + gap)) : avail;
+            while (ls > 9 && Logos.Count * (ls + gap) - gap > maxLogoW) ls--;
+            int total = Logos.Count * (ls + gap) - gap;
+            if (!textToo) x = (Width - total) / 2;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            foreach (Image im in Logos)
+            {
+                if (im != null) g.DrawImage(im, x, cy - ls / 2, ls, ls);
+                else using (var pb = new SolidBrush(Color.FromArgb(70, fg))) g.FillEllipse(pb, x + 2, cy - ls / 2 + 2, ls - 4, ls - 4);
+                x += ls + gap;
+            }
+            x += 4;
+        }
+        else
+        {
+            using (var db = new SolidBrush(Tint != Color.Empty ? Tint : Color.FromArgb(150, Th.Sub))) g.FillEllipse(db, x, cy - 4, 9, 9);
+            x += 9 + 7;
+        }
+        string label = !string.IsNullOrEmpty(Text) ? Text : Grid;
+        if (label.Length > 0)
+        {
+            var rc = new RectangleF(x, 0, Width - pad - x, Height - 3);
+            using (var sf = new StringFormat())
+            using (var br = new SolidBrush(Grid.Length > 0 && string.IsNullOrEmpty(Text) ? Color.FromArgb(170, fg) : fg))
+            {
+                sf.LineAlignment = StringAlignment.Center; sf.Trimming = StringTrimming.EllipsisCharacter; sf.FormatFlags = StringFormatFlags.NoWrap;
+                g.DrawString(label, Font, br, rc, sf);
+            }
+        }
+        if (Active)
+            using (var lb = new SolidBrush(line))
+            using (GraphicsPath lp = Th.RoundPath(new Rectangle(8, Height - 3, Width - 16, 3), 1)) g.FillPath(lb, lp);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        if (Bookmark) { PaintBookmark(g); return; }
         Color bg, fg;
+        if (HoverColor != Color.Empty && (hover || down))
+        {
+            using (var hb = new SolidBrush(HoverColor)) using (GraphicsPath hp = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Min(Radius, Height / 2))) g.FillPath(hb, hp);
+            SizeF gs0 = g.MeasureString(Glyph, iconFont);
+            using (var wb = new SolidBrush(Color.White)) g.DrawString(Glyph, iconFont, wb, (Width - gs0.Width) / 2f + 1, (Height - gs0.Height) / 2f + 1);
+            return;
+        }
         if (Seg && Tint != Color.Empty)
         {
             bg = Active ? (hover ? ControlPaint.Dark(Tint, 0.05f) : Tint) : (down || hover) ? Color.FromArgb(40, Tint) : Color.Empty;
@@ -1735,6 +1795,7 @@ class MainForm : Form
         pinBtn.Click += delegate { SetOnTop(!onTop); SaveConfig(); };
         bar.Controls.Add(pinBtn);
         tabSeg = new SegBox();
+        tabSeg.Plain = true;
         tabSeg.BackColor = Th.Glass;
         bar.Controls.Add(tabSeg);
         tabAdd = new IconBtn();
@@ -2565,7 +2626,7 @@ class MainForm : Form
         {
             Workspace me = w;
             var b = new IconBtn();
-            b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7; b.Tools = true; b.CanDelete = spaces.Count > 1;
+            b.Text = w.Name; b.Bookmark = true; b.Active = w == cur; b.Radius = 7;
             if (w.Color.Length == 7) { try { b.Tint = ColorTranslator.FromHtml(w.Color); } catch { } }
             if (w.Look > 0)
             {
@@ -2575,6 +2636,7 @@ class MainForm : Form
                 foreach (AppInfo a in apps) b.Logos.Add(AppIcons.Get(a));
                 int n = apps.Count, rows = n >= 4 ? 2 : 1, cols = Math.Max(1, n / rows);
                 if (w.Look == 1) { b.Text = ""; b.Grid = cols + "×" + rows; }
+                if (w.Look == 3) b.Text = "";
             }
             b.Font = new Font("Malgun Gothic", 9.5f, w == cur ? FontStyle.Bold : FontStyle.Regular);
             b.MouseDown += delegate (object o, MouseEventArgs e)
@@ -2608,16 +2670,68 @@ class MainForm : Form
                 tabDownX = -1; tabDragging = false; b.Cursor = Cursors.Hand;
                 if (dragged) { SaveConfig(); return; }
                 if (e.Button == MouseButtons.Right) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(me); }); return; }
-                int tool = b.ToolAt(e.Location);
-                if (e.Button == MouseButtons.Left && tool == 1) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(me); }); return; }
-                if (e.Button == MouseButtons.Left && tool == 2) { BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { AskRemoveSpace(me); }); return; }
                 if (e.Button == MouseButtons.Left) BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { SwitchTo(me); });
             };
-            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 마우스를 올리면 수정·삭제");
+            b.MouseEnter += delegate { TabHover(b, me); };
+            Tip(b, w.Name + " · 끌어서 순서 바꾸기 · 잠깐 올려 두면 위에 수정·삭제");
             tabBtns.Add(b);
             tabSeg.Controls.Add(b);
         }
         LayoutBar();
+    }
+
+    const int TabW = 138;
+
+    // 탭에 마우스를 잠깐 올려 두면 탭 위쪽에 작은 수정·삭제 단추를 띄움 (탭 옆이 아니라 실수로 안 눌리게)
+    Form tabPop; IconBtn popEdit, popDel; Workspace popFor; IconBtn popTab; Timer popTimer; DateTime hoverSince;
+    void TabHover(IconBtn b, Workspace w)
+    {
+        if (popTab != b) { popTab = b; popFor = w; hoverSince = DateTime.Now; if (tabPop != null) tabPop.Hide(); }
+        if (popTimer == null)
+        {
+            popTimer = new Timer(); popTimer.Interval = 120;
+            popTimer.Tick += delegate
+            {
+                Point m = Cursor.Position;
+                bool onTab = popTab != null && !popTab.IsDisposed && popTab.Visible && popTab.RectangleToScreen(popTab.ClientRectangle).Contains(m);
+                bool onPop = tabPop != null && tabPop.Visible && tabPop.Bounds.Contains(m);
+                if (!onTab && !onPop) { if (tabPop != null) tabPop.Hide(); popTimer.Stop(); popTab = null; return; }
+                if (onTab && tabDownX >= 0) return;   // 끄는 중
+                if (onTab && (tabPop == null || !tabPop.Visible) && (DateTime.Now - hoverSince).TotalMilliseconds > 450) ShowTabPop();
+            };
+        }
+        popTimer.Start();
+    }
+    void ShowTabPop()
+    {
+        if (popTab == null || popTab.IsDisposed) return;
+        if (tabPop == null || tabPop.IsDisposed)
+        {
+            tabPop = new HeadHostForm(); tabPop.BackColor = Color.White;
+            tabPop.Region = null;
+            popEdit = new IconBtn(); popEdit.Glyph = "\uE70F"; popEdit.Ghost = true; popEdit.Radius = 7; popEdit.HoverColor = Color.FromArgb(62, 99, 221);
+            popDel = new IconBtn(); popDel.Glyph = "\uE74D"; popDel.Ghost = true; popDel.Radius = 7; popDel.HoverColor = Color.FromArgb(229, 72, 77);
+            popEdit.SetBounds(3, 3, 30, 24); popDel.SetBounds(35, 3, 30, 24);
+            popEdit.Click += delegate { tabPop.Hide(); Workspace w = popFor; BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { EditTab(w); }); };
+            popDel.Click += delegate { tabPop.Hide(); Workspace w = popFor; BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { AskRemoveSpace(w); }); };
+            Tip(popEdit, "이름·색깔·보이는 것 바꾸기"); Tip(popDel, "이 탭 지우기");
+            tabPop.Controls.Add(popEdit); tabPop.Controls.Add(popDel);
+            tabPop.Paint += delegate (object o, PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var pen = new Pen(Th.Border)) using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, tabPop.Width - 1, tabPop.Height - 1), 9)) e.Graphics.DrawPath(pen, gp);
+            };
+        }
+        bool canDel = spaces.Count > 1;
+        popDel.Visible = canDel;
+        int pw = canDel ? 68 : 36, ph = 30;
+        Rectangle tr = popTab.RectangleToScreen(popTab.ClientRectangle);
+        Rectangle scr = Screen.FromControl(this).Bounds;
+        int y = Math.Max(scr.Top, tr.Top - ph - 2);   // 탭 위쪽에 (창을 꽉 채웠으면 맨 위 제목 줄 자리에)
+        tabPop.Bounds = new Rectangle(tr.Left + (tr.Width - pw) / 2, y, pw, ph);
+        using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, pw, ph), 9)) tabPop.Region = new Region(gp);
+        if (!tabPop.Visible) tabPop.Show(this);
+        W.SetWindowPos(tabPop.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     }
 
     static readonly string[][] TabPalette = {
@@ -2627,7 +2741,9 @@ class MainForm : Form
     void EditTab(Workspace w)
     {
         string col = w.Color; int look = w.Look;
-        string n = AskTab("탭 수정", w.Name, ref col, ref look);
+        var apps = new List<AppInfo>();
+        if (w.T.Count > 0) foreach (Target x in w.T) apps.Add(x.App); else apps.AddRange(w.Apps);
+        string n = AskTab("탭 수정", w.Name, ref col, ref look, apps);
         if (n == null) return;
         w.Name = n; w.Color = col; w.Look = look; UpdateTabs(); SaveConfig();
     }
@@ -2646,7 +2762,7 @@ class MainForm : Form
     void AddSpace()
     {
         string col = ""; int look = 0;
-        string n = AskTab("새 탭 만들기", "", ref col, ref look);
+        string n = AskTab("새 탭 만들기", "", ref col, ref look, null);
         if (n == null) return;
         var w = new Workspace(n);
         w.Color = col; w.Look = look;
@@ -2690,10 +2806,11 @@ class MainForm : Form
     }
 
     // 이름 하나 묻는 작은 창
-    string AskTab(string title, string start, ref string color, ref int look)
+    string AskTab(string title, string start, ref string color, ref int look, List<AppInfo> apps)
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 440, "확인", out body, out ok, out cancel);
+        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 460, 540, "확인", out body, out ok, out cancel);
+        Action refresh = null;
         var ll = new Label();
         ll.Text = "탭에 보이는 것"; ll.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); ll.ForeColor = Th.Text;
         ll.AutoSize = true; ll.Location = new Point(24, 170); ll.BackColor = body.BackColor;
@@ -2701,9 +2818,9 @@ class MainForm : Form
         int lookPick = look;
         var lookSeg = new SegBox(); lookSeg.BackColor = body.BackColor;
         var lookBtns = new List<IconBtn>();
-        string[] lookNames = { "이름", "앱 로고 + 칸 배치", "앱 로고 + 이름" };
+        string[] lookNames = { "이름", "로고 + 칸 배치", "로고 + 이름", "로고만" };
         int lx = 3;
-        for (int k = 0; k < 3; k++)
+        for (int k = 0; k < 4; k++)
         {
             int kk = k;
             var lb = new IconBtn(); lb.Seg = true; lb.Text = lookNames[k]; lb.Radius = 7; lb.Active = k == lookPick;
@@ -2713,6 +2830,7 @@ class MainForm : Form
             {
                 lookPick = kk;
                 foreach (IconBtn x in lookBtns) { x.Active = x == lb; x.Font = new Font("Malgun Gothic", 9.5f, x == lb ? FontStyle.Bold : FontStyle.Regular); x.Invalidate(); }
+                if (refresh != null) refresh();
             };
             lookBtns.Add(lb); lookSeg.Controls.Add(lb);
         }
@@ -2738,12 +2856,41 @@ class MainForm : Form
                 else using (var br = new SolidBrush(Color.White)) using (var pen = new Pen(Th.Border, 1.5f)) { g.FillEllipse(br, 5, 5, 23, 23); g.DrawEllipse(pen, 5, 5, 23, 23); }
                 if (on) using (var pen = new Pen(hex.Length > 0 ? ColorTranslator.FromHtml(hex) : Th.Sub, 2f)) g.DrawEllipse(pen, 1, 1, 31, 31);
             };
-            d.Click += delegate { pick = hex; foreach (Panel x in dots) x.Invalidate(); };
+            d.Click += delegate { pick = hex; foreach (Panel x in dots) x.Invalidate(); if (refresh != null) refresh(); };
             Tip(d, TabPalette[k][0]);
             dots.Add(d); body.Controls.Add(d);
         }
         name.MaxLength = 20;   // 입력할 때부터 20자까지만
+        // 미리보기: 위쪽 막대에 실제로 보일 모양 그대로
+        var pl = new Label();
+        pl.Text = "미리보기"; pl.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); pl.ForeColor = Th.Text;
+        pl.AutoSize = true; pl.Location = new Point(24, 250); pl.BackColor = body.BackColor;
+        body.Controls.Add(pl);
+        var pv = new Panel(); pv.BackColor = Th.Glass; pv.SetBounds(24, 278, 460 - 48, 46); Th.Round(pv, 10);
+        body.Controls.Add(pv);
+        var prev = new IconBtn(); prev.Bookmark = true; prev.Active = true; prev.Font = new Font("Malgun Gothic", 9.5f, FontStyle.Bold);
+        prev.SetBounds(14, 9, TabW, 28); prev.Cursor = Cursors.Default; pv.Controls.Add(prev);
+        var other = new IconBtn(); other.Bookmark = true; other.Text = "다른 탭"; other.Font = new Font("Malgun Gothic", 9.5f);
+        other.SetBounds(14 + TabW + 2, 9, TabW, 28); other.Cursor = Cursors.Default; pv.Controls.Add(other);
+        refresh = delegate
+        {
+            string nm = name.Text.Trim(); if (nm.Length == 0) nm = "탭 이름";
+            prev.Tint = pick.Length == 7 ? ColorTranslator.FromHtml(pick) : Color.Empty;
+            prev.Logos = null; prev.Grid = ""; prev.Text = nm;
+            if (lookPick > 0)
+            {
+                prev.Logos = new List<Image>();
+                if (apps != null && apps.Count > 0) foreach (AppInfo a in apps) prev.Logos.Add(AppIcons.Get(a));
+                else { prev.Logos.Add(null); prev.Logos.Add(null); }
+                int pn = prev.Logos.Count, rows = pn >= 4 ? 2 : 1, cols = Math.Max(1, pn / rows);
+                if (lookPick == 1) { prev.Text = ""; prev.Grid = cols + "×" + rows; }
+                if (lookPick == 3) prev.Text = "";
+            }
+            prev.Invalidate();
+        };
+        name.TextChanged += delegate { refresh(); };
         name.Text = start;
+        refresh();
         bool done = false;
         Action go = delegate { if (name.Text.Trim().Length > 0) { done = true; f.DialogResult = DialogResult.OK; f.Close(); } };
         ok.Click += delegate { go(); };
@@ -3800,7 +3947,7 @@ class MainForm : Form
         if (tabAdd != null) { r -= 6; tabAdd.SetBounds(r - h, y, h, h); r -= h + 4; }
         var tw = new List<int>();
         int tabsW = 4;
-        foreach (IconBtn b in tabBtns) { int w = Math.Max(48, b.Need() - 4); tw.Add(w); tabsW += w + 2; }
+        foreach (IconBtn b in tabBtns) { tw.Add(TabW); tabsW += TabW + 2; }   // 탭 크기는 모두 같게
         // 왼쪽 도구 묶음: 자리가 모자라면 글자를 빼고 아이콘만, 그래도 모자라면 「RamSpirit」 글자도 숨김
         int fullTools = 4, iconTools = 4 + 3 * 32;
         for (int i = 0; i < 3; i++) { if (barBtns[i].Tag == null) barBtns[i].Tag = barBtns[i].Text; barBtns[i].Text = (string)barBtns[i].Tag; fullTools += barBtns[i].Need() - 8 + 2; }
@@ -3824,11 +3971,11 @@ class MainForm : Form
             int room = r - x - 12;
             if (tabsW > room && tabBtns.Count > 0)
             {
-                int each = Math.Max(40, (room - 4) / tabBtns.Count - 2);
+                int each = Math.Max(44, (room - 4) / tabBtns.Count - 2);
                 for (int k = 0; k < tw.Count; k++) tw[k] = Math.Min(tw[k], each);
             }
             int tx = 3;
-            for (int k = 0; k < tabBtns.Count; k++) { tabBtns[k].SetBounds(tx, 3, tw[k], h - 6); tx += tw[k] + 2; }
+            for (int k = 0; k < tabBtns.Count; k++) { tabBtns[k].SetBounds(tx, 0, tw[k], h); tx += tw[k] + 2; }
             int segW = tx + 1;
             tabSeg.SetBounds(r - segW, y, segW, h); r -= segW + 8;
             tabSeg.Visible = tabBtns.Count > 0;
@@ -4178,8 +4325,23 @@ class MainForm : Form
     {
         if (++watchTick % 3 == 0) SaveAttached();
         if (WindowState == FormWindowState.Minimized) return;
+        // 다른 탭에 들어 있는 앱이 스스로 창을 다시 띄우면 → 지금 탭 위에 겹쳐 보이지 않게 다시 숨김
+        foreach (Target t in AllTargets())
+        {
+            if (T.Contains(t) || t.Hwnd == IntPtr.Zero) continue;
+            if (W.IsWindow(t.Hwnd) && W.IsWindowVisible(t.Hwnd)) { W.ShowWindowAsync(t.Hwnd, 0); t.Hidden = true; t.Closed = false; Log(t.App.Name + " 창이 다른 탭에서 저절로 떠서 다시 숨김"); }
+        }
         foreach (Target t in T)
         {
+            // 앱이 숨겼던 창(「창을 닫았어요」)을 스스로 다시 띄우면 → 칸에 다시 맞춰 보여 줌
+            if (t.Closed && t.Hwnd != IntPtr.Zero && t.Cell.Visible && W.IsWindow(t.Hwnd) && W.IsWindowVisible(t.Hwnd))
+            {
+                t.Closed = false; t.Hidden = false; t.Missing = 0; t.Rgn = "";
+                t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
+                Log(t.App.Name + " 창이 다시 떠서 칸에 다시 맞춤");
+                SyncWindows();
+                continue;
+            }
             if (t.Hwnd == IntPtr.Zero || t.Hidden || !t.Cell.Visible) continue;
             bool exists = W.IsWindow(t.Hwnd);
             bool alive = exists && W.IsWindowVisible(t.Hwnd);
@@ -4208,6 +4370,10 @@ class MainForm : Form
             t.Wait.Text = t.App.Name + " 앱이 닫혔어요\n여기를 누르면 다시 열어요";
             t.Wait.Cursor = Cursors.Hand;
             t.Wait.Visible = true;
+            // 앱이 창을 없앴다가 새로 만드는 경우가 있어서(Grok 등) 잠깐 동안 새 창을 기다렸다가 다시 붙임
+            before = W.All();
+            start = DateTime.Now;
+            if (timer != null) timer.Start();
         }
     }
 
@@ -5029,7 +5195,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.14";
+    public const string Version = "2.3.15";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 

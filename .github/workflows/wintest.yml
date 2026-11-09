@@ -21,6 +21,7 @@ jobs:
           mkdir C:\t
           "%FW%\csc.exe" /nologo /target:winexe /optimize /codepage:65001 /win32icon:src\icon.ico /lib:"%FW%\WPF" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:WindowsBase.dll /r:UIAutomationClient.dll /r:UIAutomationTypes.dll /resource:src\icons\icon1.ico,icon1.ico /resource:src\icons\icon2.ico,icon2.ico /resource:src\icons\icon3.ico,icon3.ico /resource:src\icons\icon4.ico,icon4.ico /resource:src\icons\icon5.ico,icon5.ico /resource:src\icons\icon6.ico,icon6.ico /resource:src\icons\icon7.ico,icon7.ico /resource:src\icons\icon1.png,icon1.png /resource:src\icons\icon2.png,icon2.png /resource:src\icons\icon3.png,icon3.png /resource:src\icons\icon4.png,icon4.png /resource:src\icons\icon5.png,icon5.png /resource:src\icons\icon6.png,icon6.png /resource:src\icons\icon7.png,icon7.png /out:C:\t\RamSpirit.exe src\RamSpirit.cs
           "%FW%\csc.exe" /nologo /target:winexe /codepage:65001 /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:C:\t\claude.exe test\fakeclaude.cs
+          "%FW%\csc.exe" /nologo /target:winexe /codepage:65001 /r:System.Windows.Forms.dll /r:System.Drawing.dll "/out:C:\t\Grok Bot.exe" test\fakeapp.cs
           xcopy /e /i /y test\pages C:\t\pages
       - name: 준비 (가짜 Claude 앱을 시작 메뉴에, 설정 파일)
         shell: pwsh
@@ -28,6 +29,7 @@ jobs:
           $sm = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
           $ws = New-Object -ComObject WScript.Shell
           $l = $ws.CreateShortcut("$sm\Claude.lnk"); $l.TargetPath = "C:\t\claude.exe"; $l.Save()
+          $g = $ws.CreateShortcut("$sm\Grok Bot.lnk"); $g.TargetPath = "C:\t\Grok Bot.exe"; $g.Arguments = '"Grok Bot"'; $g.Save()
           New-Item -ItemType Directory -Force "$env:APPDATA\RamSpirit" | Out-Null
           Copy-Item test\apps.txt "$env:APPDATA\RamSpirit\apps.txt"
           Get-ChildItem "C:\Program Files\Google\Chrome\Application\chrome.exe"
