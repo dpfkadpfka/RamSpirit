@@ -36,6 +36,7 @@ public static class WT {
       bool attached = main != IntPtr.Zero && owner == main;
       string kind = pn == "ramspirit" ? "ram" : attached ? "칸안" : "밖";
       if (pn != "ramspirit" && vis && !attached && (r.R - r.L) > 50) { s2++; if (!caption) n2++; }
+      if (!vis && !attached && pn != "ramspirit" && (r.R - r.L) > 300) sb.AppendLine(string.Format("  [숨은밖] {0} '{1}' {2}x{3}", pn, t, r.R - r.L, r.B - r.T));
       if (vis || attached) sb.AppendLine(string.Format("  [{0}] {1} '{2}' 보임={3} 제목줄={4} 위치={5},{6} {7}x{8}", kind, pn, t, vis, caption, r.L, r.T, r.R - r.L, r.B - r.T));
       return true; }, IntPtr.Zero);
     stray = s2; naked = n2;
@@ -70,6 +71,11 @@ Start-Ram; Start-Sleep 25; Snap "01-켜기"
 if ((Get-Content $log -Raw) -match "(?s)===== 06-내리기 =====.*?\[칸안\][^\n]*보임=True") { $script:fails += "06-내리기 : 내렸는데 칸 안 앱 창이 보임" }
 [WT]::Cmd(111); Start-Sleep 6;  Snap "07-올리기"
 [WT]::Cmd(112); Start-Sleep 25; Snap "08-업데이트처럼다시켜기"
+[WT]::Cmd(101); Start-Sleep 12; Snap "08b-다시켠뒤탭2"
+[WT]::Cmd(100); Start-Sleep 8
+[WT]::Cmd(112); Start-Sleep 25; Snap "08c-두번째다시켜기"
+[WT]::Cmd(102); Start-Sleep 15; Snap "08d-다시켠뒤탭3"
+[WT]::Cmd(100); Start-Sleep 8
 [WT]::Cmd(112); Start-Sleep 1; [WT]::Cmd(113); Start-Sleep 1; [WT]::Cmd(113); Start-Sleep 25; Snap "09-다시켜며바로누르기"
 [WT]::Cmd(101); Start-Sleep 12; [WT]::Cmd(100); Start-Sleep 10; Snap "10-탭왕복"
 [WT]::CloseMain(); Start-Sleep 10; Snap "11-끄기" $true

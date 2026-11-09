@@ -4326,7 +4326,13 @@ class MainForm : Form
                 if (t.Hwnd != IntPtr.Zero && restarting)
                     hand.Add(w.Name + "\t" + k + "\t" + t.Hwnd.ToInt64() + "\t" + (t.Web ? "1" : "0") + "\t" + t.Proc);
             }
-        if (restarting) { try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { } }
+        if (restarting)
+        {
+            // 지난번에 넘겨받고 아직 안 연 탭의 창도 그대로 다음 RamSpirit에 넘김 (밖으로 꺼내 보이지 않게)
+            foreach (KeyValuePair<string, string[]> e in handoff)
+                if (W.IsWindow(new IntPtr(long.Parse(e.Value[2])))) hand.Add(string.Join("\t", e.Value));
+            try { File.WriteAllLines(handoffFile, hand.ToArray(), Encoding.UTF8); } catch { }
+        }
 
         // 앱마다 따로 처리 → 응답 없는 앱 하나 때문에 다른 앱 창이 제목 줄 없는 채로 남지 않게
         var jobs = new List<System.Threading.Thread>();
@@ -4358,12 +4364,13 @@ class MainForm : Form
         }
         if (allDone) { try { File.Delete(attachedFile); } catch { } }   // 못 끝낸 창이 있으면 다음에 켤 때 되돌림
         // 다시 켠 뒤 아직 안 연 탭에 넘겨받은 창이 남아 있으면 정리
-        foreach (KeyValuePair<string, string[]> e in handoff)
-        {
-            IntPtr h = new IntPtr(long.Parse(e.Value[2]));
-            if (!W.IsWindow(h)) continue;
-            if (keep) W.ShowWindowAsync(h, 5); else W.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
-        }
+        if (!restarting)
+            foreach (KeyValuePair<string, string[]> e in handoff)
+            {
+                IntPtr h = new IntPtr(long.Parse(e.Value[2]));
+                if (!W.IsWindow(h)) continue;
+                if (keep) W.ShowWindowAsync(h, 5); else W.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
+            }
         // 앱을 바꾸면서 최소화해 둔 예전 창도 같이 닫기
         if (!keep) foreach (long h in released) W.PostMessage(new IntPtr(h), 0x0010, IntPtr.Zero, IntPtr.Zero);
     }
