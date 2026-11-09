@@ -444,6 +444,7 @@ class IconBtn : Control
     public bool Active;      // 켜짐 상태(연보라 바탕 + 보라 아이콘)
     public bool Strike;      // 꺼짐 표시(아이콘에 사선)
     public bool Seg;         // 묶음(SegBox) 안의 버튼: 평소 바탕 없음, 켜지면 흰 바탕 + 테두리
+    public Color Tint = Color.Empty;   // 탭 색깔 (켜지면 이 색 바탕 + 흰 글자, 꺼져 있으면 이 색 글자)
     public int Radius = 9;
     bool hover, down;
     static Font iconFont;
@@ -496,7 +497,12 @@ class IconBtn : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         Color bg, fg;
-        if (Seg) { bg = Active ? Color.White : (down || hover) ? Th.ChipHover : Color.Empty; fg = (Active || hover) ? Th.Text : Th.Sub; }
+        if (Seg && Tint != Color.Empty)
+        {
+            bg = Active ? (hover ? ControlPaint.Dark(Tint, 0.05f) : Tint) : (down || hover) ? Color.FromArgb(40, Tint) : Color.Empty;
+            fg = Active ? Color.White : Tint;
+        }
+        else if (Seg) { bg = Active ? Color.White : (down || hover) ? Th.ChipHover : Color.Empty; fg = (Active || hover) ? Th.Text : Th.Sub; }
         else if (Primary) { bg = hover ? Th.AccentDark : Th.Accent; fg = Color.White; }
         else if (Active) { bg = hover ? Th.ActiveHover : Th.AccentSoft; fg = Th.Accent; }
         else if (Ghost) { bg = down ? Th.ChipHover : hover ? Th.ChipBg : Color.Empty; fg = hover ? Th.Text : Th.ChipText; }
@@ -509,7 +515,7 @@ class IconBtn : Control
             using (GraphicsPath path = Th.RoundPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Min(Radius, Height / 2)))
             {
                 g.FillPath(br, path);
-                if (Seg && Active) using (var pen = new Pen(Th.Border)) g.DrawPath(pen, path);
+                if (Seg && Active && Tint == Color.Empty) using (var pen = new Pen(Th.Border)) g.DrawPath(pen, path);
             }
         bool hasText = !string.IsNullOrEmpty(Text);
         SizeF gs = g.MeasureString(Glyph, iconFont);
@@ -1424,6 +1430,7 @@ class Workspace
     public double[] ColW = new double[0], RowW = new double[0];
     public int Solo = -1;
     public bool Started;
+    public string Color = "";   // 탭 색깔 (#rrggbb, 비어 있으면 기본)
     public Workspace(string n) { Name = n; }
 }
 
@@ -1729,6 +1736,7 @@ class MainForm : Form
                     string[] p = line.Split('\t');
                     if (p.Length == 2 && p[0] == "#tab") { w = new Workspace(p[1].Trim()); spaces.Add(w); continue; }
                     if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
+                    if (p.Length == 2 && p[0] == "#tabcolor") { if (w != null) w.Color = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#ontop") { onTop = p[1] == "1"; continue; }
                     if (p.Length == 2 && p[0] == "#bar") { barHidden = p[1] == "0"; continue; }
@@ -1802,6 +1810,7 @@ class MainForm : Form
             foreach (Workspace w in spaces)
             {
                 lines.Add("#tab\t" + w.Name);
+                if (w.Color.Length > 0) lines.Add("#tabcolor\t" + w.Color);
                 if (w.Started)
                     foreach (Target t in w.T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0") + (t.App.PreferWeb ? "\tweb" : ""));
                 else
@@ -2457,6 +2466,7 @@ class MainForm : Form
             Workspace me = w;
             var b = new IconBtn();
             b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7;
+            if (w.Color.Length == 7) { try { b.Tint = ColorTranslator.FromHtml(w.Color); } catch { } }
             b.Font = new Font("Malgun Gothic", 9.5f, w == cur ? FontStyle.Bold : FontStyle.Regular);
             b.MouseDown += delegate (object o, MouseEventArgs e)
             {
@@ -2491,7 +2501,7 @@ class MainForm : Form
                 if (e.Button == MouseButtons.Right) { TabMenu(me, b); return; }
                 if (e.Button == MouseButtons.Left) BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { SwitchTo(me); });
             };
-            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 오른쪽 클릭: 이름 바꾸기·지우기");
+            Tip(b, (w == cur ? "지금 보고 있는 탭" : "「" + w.Name + "」 탭으로 바꾸기") + " · 끌어서 순서 바꾸기 · 오른쪽 클릭: 이름·색깔 바꾸기·지우기");
             tabBtns.Add(b);
             tabSeg.Controls.Add(b);
         }
@@ -2508,12 +2518,32 @@ class MainForm : Form
             if (n == null) return;
             w.Name = n; UpdateTabs(); SaveConfig();
         };
+        var col = new ToolStripMenuItem("탭 색깔");
+        string[][] pal = {
+            new[] { "기본", "" }, new[] { "빨강", "#E5484D" }, new[] { "주황", "#F76B15" }, new[] { "초록", "#30A46C" },
+            new[] { "청록", "#12A594" }, new[] { "파랑", "#3E63DD" }, new[] { "보라", "#8E4EC6" }, new[] { "분홍", "#D6409F" }, new[] { "회색", "#6F6E77" } };
+        foreach (string[] c in pal)
+        {
+            string hex = c[1];
+            var it = new ToolStripMenuItem(c[0]);
+            var bmp = new Bitmap(14, 14);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                if (hex.Length > 0) using (var br = new SolidBrush(ColorTranslator.FromHtml(hex))) g.FillEllipse(br, 1, 1, 12, 12);
+                else using (var pen = new Pen(Th.Border, 1.5f)) g.DrawEllipse(pen, 1, 1, 12, 12);
+            }
+            it.Image = bmp;
+            it.Checked = w.Color.Equals(hex, StringComparison.OrdinalIgnoreCase);
+            it.Click += delegate { w.Color = hex; UpdateTabs(); SaveConfig(); };
+            col.DropDownItems.Add(it);
+        }
         var apps = new ToolStripMenuItem("이 탭의 칸·앱 고르기...");
         apps.Click += delegate { SwitchTo(w); OpenSettings(); };
         var del = new ToolStripMenuItem("탭 지우기 (안의 앱도 닫혀요)");
         del.Enabled = spaces.Count > 1;
         del.Click += delegate { RemoveSpace(w); };
-        m.Items.Add(ren); m.Items.Add(apps); m.Items.Add(new ToolStripSeparator()); m.Items.Add(del);
+        m.Items.Add(ren); m.Items.Add(col); m.Items.Add(apps); m.Items.Add(new ToolStripSeparator()); m.Items.Add(del);
         m.Show(at, new Point(0, at.Height + 2));
     }
 
@@ -4638,7 +4668,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.3";
+    public const string Version = "2.3.4";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
