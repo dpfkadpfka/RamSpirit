@@ -1,12 +1,18 @@
 ﻿#tab	Claude App & Web
+#tabcolor	#F76B15
+#tablook	2
 Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1
 Cluade Web	Cluade Web|claude	file:///C:/t/pages/claude.html	#0ea5e9	0	web
 #ratio	1,1	1
 #tab	Claude & Gpt
+#tabcolor	#30A46C
+#tablook	1
 Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1
 ChatGPT	ChatGPT	file:///C:/t/pages/gpt.html	#10a37f	1
 #ratio	1,1	1
 #tab	AI
+#tabcolor	#D6409F
+#tablook	3
 Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1
 ChatGPT	ChatGPT	file:///C:/t/pages/gpt.html	#10a37f	1
 Grok Bot	Grok Bot	file:///C:/t/pages/grok.html	#0ea5e9	0
