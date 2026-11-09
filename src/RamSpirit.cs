@@ -445,6 +445,8 @@ class IconBtn : Control
     public bool Strike;      // 꺼짐 표시(아이콘에 사선)
     public bool Seg;         // 묶음(SegBox) 안의 버튼: 평소 바탕 없음, 켜지면 흰 바탕 + 테두리
     public Color Tint = Color.Empty;
+    public List<Image> Logos;              // 탭: 칸에 든 앱 로고들 (null이면 글자만)
+    public string Grid = "";               // 탭: 칸 배치 (예: 2×2)
     public bool Tools, CanDelete = true;   // 탭: 마우스를 올리면 오른쪽에 수정·삭제 아이콘
     int toolHot;                           // 0 없음, 1 수정, 2 삭제
     static Font smallIcon;
@@ -502,8 +504,20 @@ class IconBtn : Control
     protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
 
     // 글자까지 들어가는 데 필요한 너비
+    const int LogoS = 15, LogoGap = 3;
+    static Font gridFont;
+    float ContentW(Graphics g)
+    {
+        float w = 0;
+        if (Logos != null && Logos.Count > 0) w += Logos.Count * (LogoS + LogoGap) - LogoGap;
+        if (!string.IsNullOrEmpty(Text)) w += (w > 0 ? 7 : 0) + g.MeasureString(Text, Font).Width;
+        if (Grid.Length > 0) { if (gridFont == null) gridFont = new Font("Segoe UI", 8f, FontStyle.Bold); w += (w > 0 ? 6 : 0) + g.MeasureString(Grid, gridFont).Width; }
+        return w;
+    }
     public int Need()
     {
+        if (Logos != null)
+            using (Graphics g = CreateGraphics()) return (int)(ContentW(g) + 22 + (Tools ? ToolW - 6 : 0));
         if (string.IsNullOrEmpty(Text)) return Height;
         using (Graphics g = CreateGraphics())
             return (int)((Glyph.Length > 0 ? 14 + 18 + 7 : 18) + g.MeasureString(Text, Font).Width + (Glyph.Length > 0 ? 12 : 18) + (Tools ? ToolW - 6 : 0));
@@ -542,7 +556,29 @@ class IconBtn : Control
         using (var br = new SolidBrush(fg))
         {
             if (Glyph.Length > 0) g.DrawString(Glyph, iconFont, br, gx, gy);
-            if (hasText)
+            if (Logos != null)
+            {
+                // 로고 + 이름 + 칸 배치를 가운데에
+                float room = Tools && hover ? Width - ToolW : Width;
+                float cx = (room - ContentW(g)) / 2f + (Tools && hover ? 4 : 0);
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                foreach (Image im in Logos)
+                {
+                    int ly = (Height - LogoS) / 2;
+                    if (im != null) g.DrawImage(im, (int)cx, ly, LogoS, LogoS);
+                    else using (var pb = new SolidBrush(Color.FromArgb(60, fg))) g.FillEllipse(pb, cx + 2, ly + 2, LogoS - 4, LogoS - 4);
+                    cx += LogoS + LogoGap;
+                }
+                if (Logos.Count > 0) cx += 7 - LogoGap;
+                if (hasText) { SizeF ts = g.MeasureString(Text, Font); g.DrawString(Text, Font, br, cx, (Height - ts.Height) / 2f + 1); cx += ts.Width + 6; }
+                if (Grid.Length > 0)
+                {
+                    SizeF gs2 = g.MeasureString(Grid, gridFont);
+                    using (var gb = new SolidBrush(Color.FromArgb(Active && Tint != Color.Empty ? 220 : 150, fg)))
+                        g.DrawString(Grid, gridFont, gb, cx, (Height - gs2.Height) / 2f + 1);
+                }
+            }
+            else if (hasText)
             {
                 SizeF ts = g.MeasureString(Text, Font);
                 float room = Tools && hover ? Width - ToolW : Width;
@@ -1469,6 +1505,7 @@ class Workspace
     public int Solo = -1;
     public bool Started;
     public string Color = "";   // 탭 색깔 (#rrggbb, 비어 있으면 기본)
+    public int Look;            // 탭에 보이는 것: 0 이름, 1 앱 로고 + 칸 배치, 2 앱 로고 + 이름
     public Workspace(string n) { Name = n; }
 }
 
@@ -1775,6 +1812,7 @@ class MainForm : Form
                     if (p.Length == 2 && p[0] == "#tab") { w = new Workspace(p[1].Trim()); spaces.Add(w); continue; }
                     if (p.Length == 2 && p[0] == "#active") { active = p[1].Trim(); continue; }
                     if (p.Length == 2 && p[0] == "#tabcolor") { if (w != null) w.Color = p[1].Trim(); continue; }
+                    if (p.Length == 2 && p[0] == "#tablook") { int lk; if (w != null && int.TryParse(p[1], out lk)) w.Look = lk; continue; }
                     if (p.Length == 2 && p[0] == "#composer") { compOpen = p[1] != "0"; continue; }
                     if (p.Length == 2 && p[0] == "#ontop") { onTop = p[1] == "1"; continue; }
                     if (p.Length == 2 && p[0] == "#bar") { barHidden = p[1] == "0"; continue; }
@@ -1849,6 +1887,7 @@ class MainForm : Form
             {
                 lines.Add("#tab\t" + w.Name);
                 if (w.Color.Length > 0) lines.Add("#tabcolor\t" + w.Color);
+                if (w.Look > 0) lines.Add("#tablook\t" + w.Look);
                 if (w.Started)
                     foreach (Target t in w.T) lines.Add(t.App.Name + "\t" + t.App.Keys + "\t" + t.App.Url + "\t" + t.App.Color + "\t" + (t.SendOn ? "1" : "0") + (t.App.PreferWeb ? "\tweb" : ""));
                 else
@@ -2507,6 +2546,15 @@ class MainForm : Form
             var b = new IconBtn();
             b.Text = w.Name; b.Seg = true; b.Active = w == cur; b.Radius = 7; b.Tools = true; b.CanDelete = spaces.Count > 1;
             if (w.Color.Length == 7) { try { b.Tint = ColorTranslator.FromHtml(w.Color); } catch { } }
+            if (w.Look > 0)
+            {
+                var apps = new List<AppInfo>();
+                if (w.T.Count > 0) foreach (Target x in w.T) apps.Add(x.App); else apps.AddRange(w.Apps);
+                b.Logos = new List<Image>();
+                foreach (AppInfo a in apps) b.Logos.Add(AppIcons.Get(a));
+                int n = apps.Count, rows = n >= 4 ? 2 : 1, cols = Math.Max(1, n / rows);
+                if (w.Look == 1) { b.Text = ""; b.Grid = cols + "×" + rows; }
+            }
             b.Font = new Font("Malgun Gothic", 9.5f, w == cur ? FontStyle.Bold : FontStyle.Regular);
             b.MouseDown += delegate (object o, MouseEventArgs e)
             {
@@ -2557,10 +2605,10 @@ class MainForm : Form
 
     void EditTab(Workspace w)
     {
-        string col = w.Color;
-        string n = AskTab("탭 수정", w.Name, ref col);
+        string col = w.Color; int look = w.Look;
+        string n = AskTab("탭 수정", w.Name, ref col, ref look);
         if (n == null) return;
-        w.Name = n; w.Color = col; UpdateTabs(); SaveConfig();
+        w.Name = n; w.Color = col; w.Look = look; UpdateTabs(); SaveConfig();
     }
 
     void AskRemoveSpace(Workspace w)
@@ -2576,11 +2624,11 @@ class MainForm : Form
 
     void AddSpace()
     {
-        string col = "";
-        string n = AskTab("새 탭 만들기", "", ref col);
+        string col = ""; int look = 0;
+        string n = AskTab("새 탭 만들기", "", ref col, ref look);
         if (n == null) return;
         var w = new Workspace(n);
-        w.Color = col;
+        w.Color = col; w.Look = look;
         w.Started = true;                      // 칸은 아래 설정에서 고름
         spaces.Add(w);
         Workspace back = cur;
@@ -2621,10 +2669,34 @@ class MainForm : Form
     }
 
     // 이름 하나 묻는 작은 창
-    string AskTab(string title, string start, ref string color)
+    string AskTab(string title, string start, ref string color, ref int look)
     {
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 350, "확인", out body, out ok, out cancel);
+        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 440, 440, "확인", out body, out ok, out cancel);
+        var ll = new Label();
+        ll.Text = "탭에 보이는 것"; ll.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); ll.ForeColor = Th.Text;
+        ll.AutoSize = true; ll.Location = new Point(24, 170); ll.BackColor = body.BackColor;
+        body.Controls.Add(ll);
+        int lookPick = look;
+        var lookSeg = new SegBox(); lookSeg.BackColor = body.BackColor;
+        var lookBtns = new List<IconBtn>();
+        string[] lookNames = { "이름", "앱 로고 + 칸 배치", "앱 로고 + 이름" };
+        int lx = 3;
+        for (int k = 0; k < 3; k++)
+        {
+            int kk = k;
+            var lb = new IconBtn(); lb.Seg = true; lb.Text = lookNames[k]; lb.Radius = 7; lb.Active = k == lookPick;
+            lb.Font = new Font("Malgun Gothic", 9.5f, k == lookPick ? FontStyle.Bold : FontStyle.Regular);
+            int lw = lb.Need() + 4; lb.SetBounds(lx, 3, lw, 30); lx += lw + 2;
+            lb.Click += delegate
+            {
+                lookPick = kk;
+                foreach (IconBtn x in lookBtns) { x.Active = x == lb; x.Font = new Font("Malgun Gothic", 9.5f, x == lb ? FontStyle.Bold : FontStyle.Regular); x.Invalidate(); }
+            };
+            lookBtns.Add(lb); lookSeg.Controls.Add(lb);
+        }
+        lookSeg.SetBounds(24, 198, lx + 1, 36);
+        body.Controls.Add(lookSeg);
         TextBox name = Ui.Field(body, "탭 이름", null, 24, 4, 440 - 48);
         var cl = new Label();
         cl.Text = "탭 색깔"; cl.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); cl.ForeColor = Th.Text;
@@ -2658,7 +2730,7 @@ class MainForm : Form
         f.Shown += delegate { name.Focus(); name.SelectAll(); };
         f.ShowDialog(this);
         if (!done) return null;
-        color = pick;
+        color = pick; look = lookPick;
         string n = name.Text.Trim().Replace("\t", " ");
         return n.Length > 20 ? n.Substring(0, 20) : n;
     }
@@ -4304,6 +4376,7 @@ class MainForm : Form
                 BeginInvoke((System.Windows.Forms.MethodInvoker)delegate
                 {
                     foreach (Target x in AllTargets()) if (x.Dot != null) x.Dot.Invalidate();
+                    foreach (Workspace sw in spaces) if (sw.Look > 0) { UpdateTabs(); break; }
                 });
             }
             catch { }
@@ -4790,7 +4863,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.7";
+    public const string Version = "2.3.8";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
