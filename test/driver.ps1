@@ -15,12 +15,12 @@ public static class WT {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern uint RegisterWindowMessage(string s);
   [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
-  public static IntPtr Main() { foreach (var p in Process.GetProcessesByName("RamSpirit")) if (p.MainWindowHandle != IntPtr.Zero) return p.MainWindowHandle; return IntPtr.Zero; }
-  public static void Cmd(int c) { IntPtr h = Main(); if (h != IntPtr.Zero) PostMessage(h, RegisterWindowMessage("RamSpirit_Command"), new IntPtr(c), IntPtr.Zero); }
-  public static void CloseMain() { IntPtr h = Main(); if (h != IntPtr.Zero) PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); }
+  public static IntPtr MainWnd() { foreach (var p in Process.GetProcessesByName("RamSpirit")) if (p.MainWindowHandle != IntPtr.Zero) return p.MainWindowHandle; return IntPtr.Zero; }
+  public static void Cmd(int c) { IntPtr h = MainWnd(); if (h != IntPtr.Zero) PostMessage(h, RegisterWindowMessage("RamSpirit_Command"), new IntPtr(c), IntPtr.Zero); }
+  public static void CloseMain() { IntPtr h = MainWnd(); if (h != IntPtr.Zero) PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); }
   public static string Report(out int stray, out int naked) {
     stray = 0; naked = 0; int s2 = 0, n2 = 0;
-    IntPtr main = Main();
+    IntPtr main = MainWnd();
     var sb = new StringBuilder();
     sb.AppendLine("RamSpirit main=" + main + (main != IntPtr.Zero && IsIconic(main) ? " (내려 둠)" : ""));
     EnumWindows(delegate (IntPtr h, IntPtr l) {
