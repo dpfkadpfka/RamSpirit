@@ -14,6 +14,9 @@ using System.Text;
 using System.Windows.Forms;
 #if !NO_UIA
 using System.Windows.Automation;
+
+// 실행 파일에 버전을 적어 둠 → 다른 곳의 예전 RamSpirit.exe를 켜도 설치된 새 버전을 덮어쓰지 않게
+[assembly: System.Reflection.AssemblyFileVersion(Updater.Version)]
 #endif
 
 static class W
@@ -5211,7 +5214,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.17";
+    public const string Version = "2.3.18";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
@@ -5226,13 +5229,27 @@ static class Updater
             string me = Path.GetFullPath(Application.ExecutablePath);
             if (string.Equals(me, Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase)) return false;
             Directory.CreateDirectory(InstallDir);
-            File.Copy(me, InstalledExe, true);
+            // 설치된 쪽이 같거나 더 새 버전이면 덮어쓰지 않고 그걸 켬 (예전에 받아 둔 파일을 실수로 켜도 안전)
+            System.Version iv = FileVer(InstalledExe);
+            if (!File.Exists(InstalledExe) || iv == null || iv < new System.Version(Version)) File.Copy(me, InstalledExe, true);
             MakeShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), InstalledExe);
             MakeShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs"), InstalledExe);
             Process.Start(InstalledExe);
             return true;
         }
         catch { return false; }   // 복사가 안 되면 그냥 지금 위치에서 실행
+    }
+
+    static System.Version FileVer(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            string v = FileVersionInfo.GetVersionInfo(path).FileVersion;
+            if (string.IsNullOrEmpty(v)) return null;
+            return new System.Version(v);
+        }
+        catch { return null; }
     }
 
     public static void MakeShortcut(string folder, string target)
@@ -5289,7 +5306,13 @@ static class Updater
             if (new FileInfo(tmp).Length < 20000) { File.Delete(tmp); return null; }
             if (File.Exists(old)) File.Delete(old);
             File.Move(cur, old);      // 실행 중인 파일도 이름은 바꿀 수 있음
-            File.Move(tmp, cur);
+            try { File.Move(tmp, cur); }
+            catch
+            {
+                // 새 파일을 제자리에 못 놓으면 원래 파일을 되돌려 놓음 (RamSpirit.exe가 사라져 바로가기가 깨지지 않게)
+                try { if (!File.Exists(cur)) File.Move(old, cur); } catch { }
+                throw;
+            }
             Ready = latest;
             return latest;
         }
