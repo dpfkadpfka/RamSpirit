@@ -115,6 +115,9 @@ Grok "hide"; Start-Sleep 5; Grok "show"; Start-Sleep 6; Snap "G5-지금탭에서
 Start-Ram; Start-Sleep 25; Snap "12-다시켜기"
 [WT]::CloseMain(); Start-Sleep 10; Snap "13-끄기2" $true
 
+$ie = "$env:LOCALAPPDATA\RamSpirit\RamSpirit.exe"
+"===== 설치된 파일 버전 =====" | Out-File $log -Append -Encoding utf8
+if (Test-Path $ie) { ([System.Diagnostics.FileVersionInfo]::GetVersionInfo($ie).FileVersion) | Out-File $log -Append -Encoding utf8 } else { $script:fails += "설치된 RamSpirit.exe가 없음" }
 if (Test-Path "$env:APPDATA\RamSpirit\error.log") { "===== error.log =====" | Out-File $log -Append -Encoding utf8; Get-Content "$env:APPDATA\RamSpirit\error.log" | Out-File $log -Append -Encoding utf8 }
 if (Test-Path "$env:APPDATA\RamSpirit\attach.log") { "===== attach.log =====" | Out-File $log -Append -Encoding utf8; Get-Content "$env:APPDATA\RamSpirit\attach.log" | Out-File $log -Append -Encoding utf8 }
 "===== 결과 =====" | Out-File $log -Append -Encoding utf8
