@@ -17,6 +17,14 @@ using System.Windows.Automation;
 
 // 실행 파일에 버전을 적어 둠 → 다른 곳의 예전 RamSpirit.exe를 켜도 설치된 새 버전을 덮어쓰지 않게
 [assembly: System.Reflection.AssemblyFileVersion(Updater.Version)]
+[assembly: System.Reflection.AssemblyVersion(Updater.Version)]
+[assembly: System.Reflection.AssemblyInformationalVersion(Updater.Version)]
+[assembly: System.Reflection.AssemblyTitle("RamSpirit")]
+[assembly: System.Reflection.AssemblyProduct("RamSpirit")]
+[assembly: System.Reflection.AssemblyDescription("여러 AI 앱과 프로그램을 한 창에 나눠 띄우는 윈도우 앱")]
+[assembly: System.Reflection.AssemblyCompany("김예람 (dpfkadpfka)")]
+[assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 김예람")]
+[assembly: System.Runtime.InteropServices.ComVisible(false)]
 #endif
 
 static class W
@@ -5214,7 +5222,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.18";
+    public const string Version = "2.3.19";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
