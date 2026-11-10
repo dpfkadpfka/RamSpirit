@@ -1,0 +1,33 @@
+# 윈도우 Defender가 RamSpirit.exe를 위협으로 보는지 검사 (defscan 브랜치에 올리면 실행)
+name: RamSpirit Defender 검사
+
+on:
+  push:
+    branches: [defscan]
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 여러 버전 받기·만들기
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force C:\s | Out-Null
+          foreach ($v in 'v2.3.18','v2.3.10','v2.2.4','v2.0.0','v1.2.0') { $d="C:\s\$v"; New-Item -ItemType Directory -Force $d | Out-Null; gh release download $v -R ${{ github.repository }} -p RamSpirit.exe -D $d 2>$null }
+          Get-ChildItem C:\s -Recurse -File | ForEach-Object { "$($_.FullName) $($_.Length)" }
+      - name: Defender 상태와 검사
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated | Format-List
+          try { Update-MpSignature -ErrorAction Stop; "서명 업데이트 완료" } catch { "서명 업데이트 실패: $_" }
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          Get-ChildItem C:\s -Recurse -File -Filter *.exe | ForEach-Object {
+            $out = & $mp -Scan -ScanType 3 -File $_.FullName -DisableRemediation 2>&1 | Out-String
+            "===== $($_.FullName)"; $out.Trim()
+          }
+          Get-MpThreatDetection | Select-Object ThreatID,Resources,InitialDetectionTime | Format-List
+          Get-MpThreat | Select-Object ThreatName,ThreatID | Format-List
