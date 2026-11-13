@@ -4455,7 +4455,7 @@ class MainForm : Form
         {
             if (++t.Hung >= 10)
             {
-                if (!t.HungShown) Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음");
+                if (!t.HungShown) { Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음"); sendHint.Text = t.App.Name + " 앱이 응답하지 않아요 · 그 칸을 누르면 앱을 끄고 다시 켜요"; }
                 t.HungShown = true;
                 ShowHungCover(t);
             }
