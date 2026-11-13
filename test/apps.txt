@@ -18,6 +18,12 @@ ChatGPT	ChatGPT	file:///C:/t/pages/gpt.html	#10a37f	1
 Grok Bot	Grok Bot	file:///C:/t/pages/grok.html	#0ea5e9	0
 Gemini	Gemini	file:///C:/t/pages/gemini.html	#4285f4	1
 #ratio	1,1	1,1
+#tab	Claude 4
+Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1
+Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
+Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
+Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
+#ratio	1,1	1,1
 #active	Claude App & Web
 #composer	0
 #theme	분홍

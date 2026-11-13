@@ -100,6 +100,7 @@ function Grok($c) { Set-Content -Path "C:\t\cmd_GrokBot.txt" -Value $c }
 Start-Ram; Start-Sleep 3; Snap "00-켜는중" $false; Start-Sleep 22; Snap "01-켜기" $true 2
 [WT]::Cmd(101); Start-Sleep 12; Snap "02-탭2" $true 2
 [WT]::Cmd(102); Start-Sleep 15; Snap "03-탭3" $true 4
+[WT]::Cmd(103); Start-Sleep 18; Snap "03b-클로드앱1웹3" $true 4
 [WT]::Cmd(100); Start-Sleep 10; Snap "04-탭1로"
 [WT]::Cmd(3);   Start-Sleep 15; Snap "05-모두새대화"
 # 탭에 마우스를 올리면 위쪽에 수정·삭제가 뜨는지, 수정을 누르면 창이 뜨는지
