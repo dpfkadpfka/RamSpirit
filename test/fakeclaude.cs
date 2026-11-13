@@ -6,13 +6,19 @@ static class FakeClaude {
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [STAThread] static void Main() {
     bool first; var m = new System.Threading.Mutex(true, "FakeClaudeOne", out first);
-    if (!first) { IntPtr h = FindWindow(null, "Claude"); if (h != IntPtr.Zero) { ShowWindow(h, 9); SetForegroundWindow(h); } return; }
+    // 두 번째로 켜면 원래 창에 「다시 보여 줘」를 알림 (진짜 Claude처럼 밖에서 ShowWindow만 하면 다시 숨음)
+    if (!first) { System.IO.File.WriteAllText(@"C:\t\claude_show.txt", "1"); return; }
     var f = new Form(); f.Text = "Claude"; f.ClientSize = new Size(900, 700); f.MinimumSize = new Size(380, 300);
     f.BackColor = Color.FromArgb(250, 249, 245);
     var l = new Label(); l.Text = "가짜 Claude 데스크톱 앱"; l.Font = new Font("Segoe UI", 20f); l.ForeColor = Color.FromArgb(217, 119, 87); l.AutoSize = true; l.Location = new Point(30, 30);
     f.Controls.Add(l);
     var b = new Button(); b.Text = "새 채팅"; b.Location = new Point(30, 100); b.AutoSize = true; f.Controls.Add(b);
-    f.FormClosing += delegate (object o, FormClosingEventArgs e) { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; f.Hide(); } };
+    bool closed = false;
+    f.FormClosing += delegate (object o, FormClosingEventArgs e) { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closed = true; f.Hide(); } };
+    f.VisibleChanged += delegate { if (f.Visible && closed) f.BeginInvoke((MethodInvoker)delegate { if (closed) f.Hide(); }); };
+    var t = new Timer(); t.Interval = 300;
+    t.Tick += delegate { if (System.IO.File.Exists(@"C:\t\claude_show.txt")) { try { System.IO.File.Delete(@"C:\t\claude_show.txt"); } catch { } closed = false; f.Show(); f.Activate(); } };
+    t.Start();
     Application.Run(f); GC.KeepAlive(m);
   }
 }

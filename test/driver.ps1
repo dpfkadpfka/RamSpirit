@@ -68,6 +68,14 @@ public static class WT {
       RECT r; GetWindowRect(h, out r); res = r.L + "," + r.T; return false; }, IntPtr.Zero);
     return res;
   }
+  public static void CloseApp(string title, string proc) {
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      int pid; GetWindowThreadProcessId(h, out pid);
+      string pn = ""; try { pn = Process.GetProcessById(pid).ProcessName.ToLower(); } catch { }
+      var t = new StringBuilder(256); GetWindowText(h, t, 256);
+      if (pn == proc && t.ToString() == title && IsWindowVisible(h)) { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); return false; }
+      return true; }, IntPtr.Zero);
+  }
   public static void Shot(string path) {
     var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
     using (var bmp = new Bitmap(b.Width, b.Height)) { using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size); bmp.Save(path); }
@@ -122,6 +130,9 @@ Grok "closedialog"; Start-Sleep 3
 Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"
 $hc=[WT]::FindTitle("RamSpirit-hung"); "멈춤 안내 위치 $hc" | Out-File $log -Append -Encoding utf8; if ($hc -eq $null) { $script:fails += "S2 : 멈춘 앱 안내가 안 뜸" }
 Start-Sleep 14; [WT]::Cmd(100); Start-Sleep 6
+# Claude 앱 X로 닫은 뒤 칸을 눌러 다시 열기 (밖에서 보이게 하면 다시 숨는 앱)
+[WT]::CloseApp("Claude", "claude"); Start-Sleep 5; Snap "C1-앱닫힘" $true 1
+[WT]::Click(250, 420); Start-Sleep 8; Snap "C2-눌러서다시열기" $true 2
 [WT]::Cmd(112); Start-Sleep 25; Snap "08-업데이트처럼다시켜기"
 [WT]::Cmd(101); Start-Sleep 12; Snap "08b-다시켠뒤탭2"
 [WT]::Cmd(100); Start-Sleep 8
