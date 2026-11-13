@@ -68,6 +68,16 @@ public static class WT {
       RECT r; GetWindowRect(h, out r); res = r.L + "," + r.T; return false; }, IntPtr.Zero);
     return res;
   }
+  [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+  public static string EnabledTitle(string want) {
+    string res = "없음";
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      var t = new StringBuilder(256); GetWindowText(h, t, 256);
+      if (t.ToString() != want) return true;
+      res = IsWindowEnabled(h) ? "풀림" : "잠김"; return false; }, IntPtr.Zero);
+    return res;
+  }
   public static void CloseApp(string title, string proc) {
     EnumWindows(delegate (IntPtr h, IntPtr l) {
       int pid; GetWindowThreadProcessId(h, out pid);
@@ -126,6 +136,15 @@ Grok "hide"; Start-Sleep 5; Grok "show"; Start-Sleep 6; Snap "G5-지금탭에서
 $dp = [WT]::FindTitle("Save As Test"); "대화상자 위치 $dp" | Out-File $log -Append -Encoding utf8
 if ($dp -eq $null -or $dp.StartsWith("-")) { $script:fails += "S1 : 숨은 대화상자를 꺼내지 못함 ($dp)" }
 Snap "S1-숨은대화상자꺼냄" $false
+Grok "closedialog"; Start-Sleep 3
+# 대화상자 없이 앱 창만 잠김 (Claude 앱을 닫았다 다시 열면 생기던 먹통) → 풀어 줘야 함
+Grok "lock"; Start-Sleep 2; $l1 = [WT]::EnabledTitle("Grok Bot"); Start-Sleep 5; $l2 = [WT]::EnabledTitle("Grok Bot")
+"잠김 확인 2초=$l1 7초=$l2" | Out-File $log -Append -Encoding utf8
+if ($l1 -ne "잠김") { $script:fails += "L1 : 가짜 앱 잠금이 안 걸림 ($l1)" }
+if ($l2 -ne "풀림") { $script:fails += "L1 : 대화상자 없이 잠긴 창을 풀지 못함 ($l2)" }
+# 대화상자가 떠 있는 동안에는 잠금을 함부로 풀면 안 됨
+Grok "dialog"; Start-Sleep 7; $l3 = [WT]::EnabledTitle("Grok Bot"); "대화상자 중 $l3" | Out-File $log -Append -Encoding utf8
+if ($l3 -ne "잠김") { $script:fails += "L2 : 대화상자가 떠 있는데 앱 잠금을 풀어 버림 ($l3)" }
 Grok "closedialog"; Start-Sleep 3
 # 앱이 멈췄을 때 → 칸에 안내
 Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"

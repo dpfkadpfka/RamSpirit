@@ -9,6 +9,7 @@ static class FakeApp {
     x.FormClosing += delegate (object o, FormClosingEventArgs e) { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; x.Hide(); } };
     return x;
   }
+  [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool EnableWindow(IntPtr h, bool on);
   [STAThread] static void Main(string[] a) {
     title = a.Length > 0 ? a[0] : "Grok Bot";
     string cmdFile = @"C:\t\cmd_" + title.Replace(" ", "") + ".txt";
@@ -23,6 +24,7 @@ static class FakeApp {
       else if (c == "close") { last = f.Bounds; f.Dispose(); f = null; }
       else if (c == "dialog") { var d = new Form(); d.Text = "Save As Test"; d.StartPosition = FormStartPosition.Manual; d.Location = new Point(-3000, -3000); d.Size = new Size(400, 250); f.BeginInvoke((MethodInvoker)delegate { d.ShowDialog(f); }); }
       else if (c == "closedialog") { foreach (Form o in Application.OpenForms) if (o != f && o.Text == "Save As Test") { o.Close(); break; } }
+      else if (c == "lock") { EnableWindow(f.Handle, false); }
       else if (c == "hang") { System.Threading.Thread.Sleep(25000); }
       else if (c == "recreate") { if (f != null) { last = f.Bounds; f.Dispose(); } f = Make(); f.Show(); }
     };

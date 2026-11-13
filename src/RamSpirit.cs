@@ -48,6 +48,26 @@ static class W
         if (found == IntPtr.Zero) { IntPtr p = GetLastActivePopup(owner); if (p != owner) found = p; }
         return found;
     }
+    [DllImport("user32.dll")] public static extern bool EnableWindow(IntPtr h, bool on);
+    // 앱 창이 잠겨 있을 때(눌러도 반응 없음) 그 원인이 되는 「보이는」 대화상자 찾기 — 같은 앱(프로세스)의 창 중 이 창이 주인인 것
+    public static IntPtr RealDialog(IntPtr owner, bool visibleOnly)
+    {
+        IntPtr found = IntPtr.Zero;
+        uint opid; GetWindowThreadProcessId(owner, out opid);
+        EnumWindows(delegate (IntPtr h, IntPtr l)
+        {
+            if (h == owner || !IsWindowEnabled(h)) return true;
+            uint pid; GetWindowThreadProcessId(h, out pid);
+            if (pid != opid) return true;
+            if (GetWindowRel(h, 4) != owner && ClassOf(h) != "#32770") return true;
+            if (visibleOnly && !IsWindowVisible(h)) return true;
+            if (!visibleOnly && ClassOf(h) != "#32770") return true;   // 숨은 창은 진짜 대화상자(#32770)만 — 크롬 내부 숨은 창을 꺼내지 않게
+            RECT r; GetWindowRect(h, out r);
+            if (r.R - r.L < 120 || r.B - r.T < 60) return true;   // 말풍선·툴팁 같은 작은 창은 제외
+            found = h; return false;
+        }, IntPtr.Zero);
+        return found;
+    }
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -143,6 +163,13 @@ static class W
             return true;
         }, IntPtr.Zero);
         return r;
+    }
+
+    public static string TitleOf(IntPtr h)
+    {
+        var sb = new StringBuilder(256);
+        GetWindowText(h, sb, 256);
+        return sb.ToString();
     }
 
     public static string ClassOf(IntPtr h)
@@ -4447,24 +4474,31 @@ class MainForm : Form
         IntPtr h = t.Hwnd;
         if (!W.IsWindowEnabled(h))
         {
-            IntPtr pop = W.OwnedPopup(h);
-            if (pop != IntPtr.Zero && pop != h && W.IsWindow(pop))
+            // 앱 창이 잠겨 있음 (보통은 앱이 대화상자를 띄운 동안만 그럼)
+            IntPtr pop = W.RealDialog(h, true);
+            if (pop == IntPtr.Zero) pop = W.RealDialog(h, false);
+            t.Stuck++;
+            if (pop != IntPtr.Zero && W.IsWindow(pop))
             {
                 W.RECT pr; W.GetWindowRect(pop, out pr);
                 Rectangle cr = t.Body.RectangleToScreen(t.Body.ClientRectangle);
                 Rectangle scr = Screen.FromControl(this).WorkingArea;
                 bool hidden = !W.IsWindowVisible(pop) || pr.R <= scr.Left || pr.L >= scr.Right || pr.B <= scr.Top || pr.T >= scr.Bottom;
-                if (++t.Stuck == 2 || hidden)
+                if (t.Stuck == 2 || (hidden && t.Stuck % 5 == 1))
                 {
                     int pw = pr.R - pr.L, ph = pr.B - pr.T;
-                    if (hidden || t.Stuck == 2)
-                    {
-                        if (!W.IsWindowVisible(pop)) W.ShowWindowAsync(pop, 5);
-                        W.SetWindowPos(pop, IntPtr.Zero, cr.X + Math.Max(0, (cr.Width - pw) / 2), cr.Y + Math.Max(0, (cr.Height - ph) / 3), 0, 0, 0x0001 | 0x4000);
-                        if (OursInFront()) W.ForceForeground(pop);
-                        Log(t.App.Name + " 대화상자가 숨어 있어서 칸 가운데로 꺼냄");
-                    }
+                    if (!W.IsWindowVisible(pop)) W.ShowWindowAsync(pop, 5);
+                    W.SetWindowPos(pop, IntPtr.Zero, cr.X + Math.Max(0, (cr.Width - pw) / 2), cr.Y + Math.Max(0, (cr.Height - ph) / 3), 0, 0, 0x0001 | 0x4000);
+                    if (OursInFront()) W.ForceForeground(pop);
+                    Log(t.App.Name + " 대화상자가 숨어 있어서 칸 가운데로 꺼냄 (\"" + W.TitleOf(pop) + "\", " + W.ClassOf(pop) + ")");
                 }
+            }
+            else if (t.Stuck >= 3 && !W.IsHungAppWindow(h))
+            {
+                // 대화상자도 없는데 창만 잠긴 채로 남음 — Claude 앱을 닫았다가 다시 열면 이렇게 되어 눌러도 반응이 없었음 → 잠금을 풀어 줌
+                W.EnableWindow(h, true);
+                t.Stuck = 0;
+                Log(t.App.Name + " 창이 대화상자 없이 잠겨 있어서 풀어 줌");
             }
         }
         else t.Stuck = 0;
