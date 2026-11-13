@@ -35,6 +35,19 @@ static class W
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
     [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
+    [DllImport("user32.dll", EntryPoint = "GetWindow")] static extern IntPtr GetWindowRel(IntPtr h, uint cmd);
+    // 그 앱 창이 띄운(주인이 그 창인) 대화상자 찾기
+    public static IntPtr OwnedPopup(IntPtr owner)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate (IntPtr h, IntPtr l)
+        {
+            if (h == owner || GetWindowRel(h, 4) != owner || !IsWindowEnabled(h)) return true;
+            found = h; return false;
+        }, IntPtr.Zero);
+        if (found == IntPtr.Zero) { IntPtr p = GetLastActivePopup(owner); if (p != owner) found = p; }
+        return found;
+    }
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -1610,7 +1623,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;  public int Stuck, Hung;  public bool HungShown;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public int Stuck, Hung;  public bool HungShown;  public Form HungCover;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -2168,23 +2181,6 @@ class MainForm : Form
         wait.TextAlign = ContentAlignment.MiddleCenter; wait.Font = font;
         wait.Click += delegate
         {
-            if (t.HungShown)
-            {
-                // 멈춘 앱을 끄고 이 칸에 다시 켬
-                t.HungShown = false; t.Hung = 0;
-                IntPtr hh = t.Hwnd;
-                if (hh != IntPtr.Zero)
-                {
-                    if (!W.IsHungAppWindow(hh)) { t.Hidden = false; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; t.Rgn = ""; SyncWindows(); return; }   // 그새 풀렸으면 그대로 보여 줌
-                    uint pid; W.GetWindowThreadProcessId(hh, out pid);
-                    used.Remove(hh.ToInt64());
-                    t.Hwnd = IntPtr.Zero;
-                    try { Process.GetProcessById((int)pid).Kill(); } catch { }
-                }
-                t.Wait.Text = "다시 켜는 중..."; t.Wait.Cursor = Cursors.Default;
-                Reopen(t);
-                return;
-            }
             if (t.TooSmall) { ToggleSolo(t); return; }
             if (t.Closed && t.Hwnd != IntPtr.Zero && W.IsWindow(t.Hwnd))
             {
@@ -2542,6 +2538,7 @@ class MainForm : Form
             if (t.Hwnd != IntPtr.Zero && !t.Hidden) { W.ShowWindowAsync(t.Hwnd, 0); t.Hidden = true; }
             if (t.Guard != null) t.Guard.Hide();
             if (t.HeadHost != null) t.HeadHost.Hide();
+            HideHungCover(t);
         }
         cur = w; T = w.T; colW = w.ColW; rowW = w.RowW; solo = w.Solo;
         if (!w.Started)
@@ -3418,7 +3415,6 @@ class MainForm : Form
             {
                 Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
                 if (t.Closed) continue;   // 앱 X로 닫은 창은 칸을 누를 때까지 숨겨 둠
-                if (t.HungShown) continue;   // 멈춘 앱은 칸을 누를 때까지 숨겨 둠
                 if (t.TooSmall)
                 {
                     // 칸이 다시 앱 최소 크기만큼 커졌으면 다시 보여 줌, 아니면 계속 숨겨 둠
@@ -4434,7 +4430,7 @@ class MainForm : Form
         IntPtr h = t.Hwnd;
         if (!W.IsWindowEnabled(h))
         {
-            IntPtr pop = W.GetLastActivePopup(h);
+            IntPtr pop = W.OwnedPopup(h);
             if (pop != IntPtr.Zero && pop != h && W.IsWindow(pop))
             {
                 W.RECT pr; W.GetWindowRect(pop, out pr);
@@ -4457,21 +4453,57 @@ class MainForm : Form
         else t.Stuck = 0;
         if (W.IsHungAppWindow(h))
         {
-            if (++t.Hung == 10)
+            if (++t.Hung >= 10)
             {
-                Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음");
-                t.Wait.Text = t.App.Name + " 앱이 응답하지 않아요\n여기를 누르면 앱을 끄고 다시 켜요";
-                t.Wait.Cursor = Cursors.Hand;
-                t.Wait.Visible = true;
-                t.Wait.BringToFront();
-                W.ShowWindowAsync(h, 0);
-                t.Hidden = true;
+                if (!t.HungShown) Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음");
                 t.HungShown = true;
+                ShowHungCover(t);
             }
             return t.Hung >= 10;
         }
+        if (t.HungShown) { t.HungShown = false; HideHungCover(t); Log(t.App.Name + " 앱이 다시 응답함"); }
         t.Hung = 0;
         return false;
+    }
+
+    // 멈춘 앱 위에 덮는 안내 (멈춘 창은 숨기거나 옮길 수도 없어서 RamSpirit 쪽 창으로 덮음)
+    void ShowHungCover(Target t)
+    {
+        if (t.HungCover == null || t.HungCover.IsDisposed)
+        {
+            var f = new HeadHostForm(); f.Owner = this; f.BackColor = Th.Body; f.Region = null; f.Text = "RamSpirit-hung";
+            var lb = new Label(); lb.Dock = DockStyle.Fill; lb.TextAlign = ContentAlignment.MiddleCenter;
+            lb.Font = new Font("Malgun Gothic", 11f); lb.ForeColor = Th.Text; lb.Cursor = Cursors.Hand;
+            lb.Text = t.App.Name + " 앱이 응답하지 않아요\n\n여기를 누르면 앱을 끄고 다시 켜요\n(조금 기다리면 저절로 풀리기도 해요)";
+            lb.Click += delegate { RestartHung(t); };
+            f.Controls.Add(lb);
+            t.HungCover = f;
+        }
+        Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+        t.HungCover.Bounds = r;
+        using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, r.Width, r.Height), 8)) t.HungCover.Region = new Region(gp);
+        if (!t.HungCover.Visible) t.HungCover.Show(this);
+        W.SetWindowPos(t.HungCover.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+    }
+    void HideHungCover(Target t)
+    {
+        if (t.HungCover != null && !t.HungCover.IsDisposed) t.HungCover.Hide();
+    }
+    void RestartHung(Target t)
+    {
+        HideHungCover(t);
+        t.HungShown = false; t.Hung = 0;
+        IntPtr hh = t.Hwnd;
+        if (hh != IntPtr.Zero && W.IsHungAppWindow(hh))
+        {
+            uint pid; W.GetWindowThreadProcessId(hh, out pid);
+            used.Remove(hh.ToInt64());
+            t.Hwnd = IntPtr.Zero;
+            try { Process.GetProcessById((int)pid).Kill(); } catch { }
+            Log(t.App.Name + " 멈춘 앱을 끄고 다시 켬");
+            t.Wait.Text = "다시 켜는 중..."; t.Wait.Visible = true;
+            Reopen(t);
+        }
     }
 
     // 앱이 스스로 움직이거나 커지면 칸 안으로 되돌림.
@@ -4729,7 +4761,7 @@ class MainForm : Form
         startupSearch = true;
         StartSearch(new List<Target>(T));
         startupSearch = false;
-        MakeShortcut();
+        // 바탕화면 바로가기는 처음 설치할 때만 만듦 (지운 걸 켤 때마다 다시 만들지 않게)
         try { MakeTray(); } catch { }
         AppIcons.Changed = delegate
         {

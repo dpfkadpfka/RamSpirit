@@ -114,12 +114,13 @@ Grok "hide"; Start-Sleep 5; Grok "show"; Start-Sleep 6; Snap "G5-지금탭에서
 [WT]::Cmd(100); Start-Sleep 8
 # 앱이 띄운 대화상자가 화면 밖에 숨어 앱이 먹통처럼 보일 때 → 칸으로 꺼내야 함
 [WT]::Cmd(102); Start-Sleep 8; Grok "dialog"; Start-Sleep 6
-$dp = [WT]::FindTitle("다른 이름으로 저장"); "대화상자 위치 $dp" | Out-File $log -Append -Encoding utf8
+$dp = [WT]::FindTitle("Save As Test"); "대화상자 위치 $dp" | Out-File $log -Append -Encoding utf8
 if ($dp -eq $null -or $dp.StartsWith("-")) { $script:fails += "S1 : 숨은 대화상자를 꺼내지 못함 ($dp)" }
 Snap "S1-숨은대화상자꺼냄"
 Grok "closedialog"; Start-Sleep 3
 # 앱이 멈췄을 때 → 칸에 안내
-Grok "hang"; Start-Sleep 16; Snap "S2-앱멈춤안내" $true 3
+Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"
+if ([WT]::FindTitle("RamSpirit-hung") -eq $null) { $script:fails += "S2 : 멈춘 앱 안내가 안 뜸" }
 Start-Sleep 14; [WT]::Cmd(100); Start-Sleep 6
 [WT]::Cmd(112); Start-Sleep 25; Snap "08-업데이트처럼다시켜기"
 [WT]::Cmd(101); Start-Sleep 12; Snap "08b-다시켠뒤탭2"
