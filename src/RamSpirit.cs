@@ -1785,6 +1785,7 @@ class MainForm : Form
         toolSeg.Controls.Add(compToggle);
         foreach (IconBtn b in new IconBtn[] { allNew, resetBtn, compToggle }) { b.Font = new Font("Malgun Gothic", 9f); b.Radius = 7; }
         sendHint = new Label();
+        sendHint.Click += delegate { foreach (Target x in T.ToArray()) if (x.HungShown) { RestartHung(x); sendHint.Text = ""; break; } };   // 「앱이 응답하지 않아요」 안내를 누르면 그 앱을 다시 켬
         sendHint.Font = btnFont; sendHint.ForeColor = Th.Sub; sendHint.BackColor = Th.Glass;
         sendHint.TextAlign = ContentAlignment.MiddleLeft; sendHint.AutoEllipsis = true;
         sendHint.TextChanged += delegate { HintChanged(); };
@@ -4455,7 +4456,7 @@ class MainForm : Form
         {
             if (++t.Hung >= 10)
             {
-                if (!t.HungShown) { Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음"); sendHint.Text = t.App.Name + " 앱이 응답하지 않아요 · 그 칸을 누르면 앱을 끄고 다시 켜요"; }
+                if (!t.HungShown) { Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음"); sendHint.Text = t.App.Name + " 앱이 응답하지 않아요 · 이 글자를 누르면 앱을 끄고 다시 켜요"; }
                 t.HungShown = true;
                 ShowHungCover(t);
             }
@@ -5337,7 +5338,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.20";
+    public const string Version = "2.3.21";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
