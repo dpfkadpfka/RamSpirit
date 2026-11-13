@@ -116,7 +116,7 @@ Grok "hide"; Start-Sleep 5; Grok "show"; Start-Sleep 6; Snap "G5-지금탭에서
 [WT]::Cmd(102); Start-Sleep 8; Grok "dialog"; Start-Sleep 6
 $dp = [WT]::FindTitle("Save As Test"); "대화상자 위치 $dp" | Out-File $log -Append -Encoding utf8
 if ($dp -eq $null -or $dp.StartsWith("-")) { $script:fails += "S1 : 숨은 대화상자를 꺼내지 못함 ($dp)" }
-Snap "S1-숨은대화상자꺼냄"
+Snap "S1-숨은대화상자꺼냄" $false
 Grok "closedialog"; Start-Sleep 3
 # 앱이 멈췄을 때 → 칸에 안내
 Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"

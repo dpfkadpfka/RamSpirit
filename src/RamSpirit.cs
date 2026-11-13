@@ -4483,7 +4483,10 @@ class MainForm : Form
         t.HungCover.Bounds = r;
         using (GraphicsPath gp = Th.RoundPath(new Rectangle(0, 0, r.Width, r.Height), 8)) t.HungCover.Region = new Region(gp);
         if (!t.HungCover.Visible) t.HungCover.Show(this);
-        W.SetWindowPos(t.HungCover.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+        // 멈춘 창은 윈도우가 「응답 없음」 유령 창으로 바꿔 덮어서, RamSpirit를 보고 있을 때만 맨 위로 고정해 그 위에 안내를 띄움
+        bool front = OursInFront() || W.GetForegroundWindow() == t.Hwnd || W.ClassOf(W.GetForegroundWindow()) == "Ghost";
+        if (t.HungCover.TopMost != front) t.HungCover.TopMost = front;
+        W.SetWindowPos(t.HungCover.Handle, front ? new IntPtr(-1) : IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     }
     void HideHungCover(Target t)
     {
