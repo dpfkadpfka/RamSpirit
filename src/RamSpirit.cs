@@ -2185,8 +2185,24 @@ class MainForm : Form
             if (t.TooSmall) { ToggleSolo(t); return; }
             if (t.Closed && t.Hwnd != IntPtr.Zero && W.IsWindow(t.Hwnd))
             {
-                t.Closed = false; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; t.Rgn = "";
+                t.Closed = false; t.Wait.Cursor = Cursors.Default; t.Rgn = "";
+                t.Wait.Text = t.App.Name + " 다시 여는 중..."; t.Wait.Visible = true;
+                IntPtr old = t.Hwnd;
+                W.ShowWindowAsync(old, 5);
                 SyncWindows();   // Hidden이므로 다시 보이게 함
+                // 앱이 숨긴 창은 밖에서 보이게 해도 다시 안 나오는 경우가 있음(Claude 등) → 앱을 한 번 더 켜서 앱이 직접 창을 띄우게 함
+                if (!t.Web && !t.App.IsSpecial) Launch(t);
+                var later = new Timer(); later.Interval = 2500;
+                later.Tick += delegate
+                {
+                    later.Stop(); later.Dispose();
+                    if (t.Hwnd == old && W.IsWindow(old) && W.IsWindowVisible(old)) { t.Wait.Visible = false; t.Rgn = ""; SyncWindows(); return; }
+                    // 그래도 안 보이면 그 창은 놓고, 앱이 새로 띄운 창을 찾아 칸에 붙임
+                    if (t.Hwnd == old) { used.Remove(old.ToInt64()); t.Hwnd = IntPtr.Zero; t.Hidden = false; }
+                    Log(t.App.Name + " 숨긴 창이 다시 안 보여서 새 창을 찾음");
+                    Reopen(t);
+                };
+                later.Start();
                 return;
             }
             if (t.Lost || t.Hwnd == IntPtr.Zero) Reopen(t);
@@ -5338,7 +5354,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.21";
+    public const string Version = "2.3.22";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
