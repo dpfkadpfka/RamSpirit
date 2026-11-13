@@ -32,6 +32,9 @@ static class W
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -1607,7 +1610,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public int Stuck, Hung;  public bool HungShown;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -2165,6 +2168,23 @@ class MainForm : Form
         wait.TextAlign = ContentAlignment.MiddleCenter; wait.Font = font;
         wait.Click += delegate
         {
+            if (t.HungShown)
+            {
+                // 멈춘 앱을 끄고 이 칸에 다시 켬
+                t.HungShown = false; t.Hung = 0;
+                IntPtr hh = t.Hwnd;
+                if (hh != IntPtr.Zero)
+                {
+                    if (!W.IsHungAppWindow(hh)) { t.Hidden = false; t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default; t.Rgn = ""; SyncWindows(); return; }   // 그새 풀렸으면 그대로 보여 줌
+                    uint pid; W.GetWindowThreadProcessId(hh, out pid);
+                    used.Remove(hh.ToInt64());
+                    t.Hwnd = IntPtr.Zero;
+                    try { Process.GetProcessById((int)pid).Kill(); } catch { }
+                }
+                t.Wait.Text = "다시 켜는 중..."; t.Wait.Cursor = Cursors.Default;
+                Reopen(t);
+                return;
+            }
             if (t.TooSmall) { ToggleSolo(t); return; }
             if (t.Closed && t.Hwnd != IntPtr.Zero && W.IsWindow(t.Hwnd))
             {
@@ -3398,6 +3418,7 @@ class MainForm : Form
             {
                 Rectangle r = t.Body.RectangleToScreen(t.Body.ClientRectangle);
                 if (t.Closed) continue;   // 앱 X로 닫은 창은 칸을 누를 때까지 숨겨 둠
+                if (t.HungShown) continue;   // 멈춘 앱은 칸을 누를 때까지 숨겨 둠
                 if (t.TooSmall)
                 {
                     // 칸이 다시 앱 최소 크기만큼 커졌으면 다시 보여 줌, 아니면 계속 숨겨 둠
@@ -4373,6 +4394,7 @@ class MainForm : Form
                 if (!t.HeadHost.Visible) { t.Rgn = ""; SyncWindows(); }
                 W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
             }
+            if (alive && CheckStuck(t)) continue;
             if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0 && t.Proc != "chrome" && t.Proc != "msedge") W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
@@ -4402,6 +4424,54 @@ class MainForm : Form
             start = DateTime.Now;
             if (timer != null) timer.Start();
         }
+    }
+
+    // 칸 안 앱이 「먹통」처럼 보일 때
+    // ① 앱이 띄운 대화상자(저장·폴더 고르기 등)가 칸 뒤나 화면 밖에 숨어서 앱이 눌리지 않음 → 그 대화상자를 칸 가운데 맨 앞으로
+    // ② 앱이 정말 응답하지 않음(10초 넘게) → 칸에 「앱이 멈췄어요 · 누르면 다시 켜요」 안내
+    bool CheckStuck(Target t)
+    {
+        IntPtr h = t.Hwnd;
+        if (!W.IsWindowEnabled(h))
+        {
+            IntPtr pop = W.GetLastActivePopup(h);
+            if (pop != IntPtr.Zero && pop != h && W.IsWindow(pop))
+            {
+                W.RECT pr; W.GetWindowRect(pop, out pr);
+                Rectangle cr = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+                Rectangle scr = Screen.FromControl(this).WorkingArea;
+                bool hidden = !W.IsWindowVisible(pop) || pr.R <= scr.Left || pr.L >= scr.Right || pr.B <= scr.Top || pr.T >= scr.Bottom;
+                if (++t.Stuck == 2 || hidden)
+                {
+                    int pw = pr.R - pr.L, ph = pr.B - pr.T;
+                    if (hidden || t.Stuck == 2)
+                    {
+                        if (!W.IsWindowVisible(pop)) W.ShowWindowAsync(pop, 5);
+                        W.SetWindowPos(pop, IntPtr.Zero, cr.X + Math.Max(0, (cr.Width - pw) / 2), cr.Y + Math.Max(0, (cr.Height - ph) / 3), 0, 0, 0x0001 | 0x4000);
+                        if (OursInFront()) W.ForceForeground(pop);
+                        Log(t.App.Name + " 대화상자가 숨어 있어서 칸 가운데로 꺼냄");
+                    }
+                }
+            }
+        }
+        else t.Stuck = 0;
+        if (W.IsHungAppWindow(h))
+        {
+            if (++t.Hung == 10)
+            {
+                Log(t.App.Name + " 앱이 10초 넘게 응답하지 않음");
+                t.Wait.Text = t.App.Name + " 앱이 응답하지 않아요\n여기를 누르면 앱을 끄고 다시 켜요";
+                t.Wait.Cursor = Cursors.Hand;
+                t.Wait.Visible = true;
+                t.Wait.BringToFront();
+                W.ShowWindowAsync(h, 0);
+                t.Hidden = true;
+                t.HungShown = true;
+            }
+            return t.Hung >= 10;
+        }
+        t.Hung = 0;
+        return false;
     }
 
     // 앱이 스스로 움직이거나 커지면 칸 안으로 되돌림.
@@ -5222,7 +5292,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.19";
+    public const string Version = "2.3.20";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 

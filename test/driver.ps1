@@ -59,6 +59,15 @@ public static class WT {
       return true; }, IntPtr.Zero);
     return res;
   }
+  public static string FindTitle(string want) {
+    string res = null;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      var t = new StringBuilder(256); GetWindowText(h, t, 256);
+      if (t.ToString() != want) return true;
+      RECT r; GetWindowRect(h, out r); res = r.L + "," + r.T; return false; }, IntPtr.Zero);
+    return res;
+  }
   public static void Shot(string path) {
     var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
     using (var bmp = new Bitmap(b.Width, b.Height)) { using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.X, b.Y, 0, 0, b.Size); bmp.Save(path); }
@@ -103,6 +112,15 @@ Grok "close"; Start-Sleep 5
 # 지금 탭에서 앱이 숨겼다가 다시 띄움
 Grok "hide"; Start-Sleep 5; Grok "show"; Start-Sleep 6; Snap "G5-지금탭에서다시뜸" $true 4
 [WT]::Cmd(100); Start-Sleep 8
+# 앱이 띄운 대화상자가 화면 밖에 숨어 앱이 먹통처럼 보일 때 → 칸으로 꺼내야 함
+[WT]::Cmd(102); Start-Sleep 8; Grok "dialog"; Start-Sleep 6
+$dp = [WT]::FindTitle("다른 이름으로 저장"); "대화상자 위치 $dp" | Out-File $log -Append -Encoding utf8
+if ($dp -eq $null -or $dp.StartsWith("-")) { $script:fails += "S1 : 숨은 대화상자를 꺼내지 못함 ($dp)" }
+Snap "S1-숨은대화상자꺼냄"
+Grok "closedialog"; Start-Sleep 3
+# 앱이 멈췄을 때 → 칸에 안내
+Grok "hang"; Start-Sleep 16; Snap "S2-앱멈춤안내" $true 3
+Start-Sleep 14; [WT]::Cmd(100); Start-Sleep 6
 [WT]::Cmd(112); Start-Sleep 25; Snap "08-업데이트처럼다시켜기"
 [WT]::Cmd(101); Start-Sleep 12; Snap "08b-다시켠뒤탭2"
 [WT]::Cmd(100); Start-Sleep 8
