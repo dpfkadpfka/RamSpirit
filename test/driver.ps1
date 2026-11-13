@@ -120,7 +120,7 @@ Snap "S1-숨은대화상자꺼냄" $false
 Grok "closedialog"; Start-Sleep 3
 # 앱이 멈췄을 때 → 칸에 안내
 Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"
-if ([WT]::FindTitle("RamSpirit-hung") -eq $null) { $script:fails += "S2 : 멈춘 앱 안내가 안 뜸" }
+$hc=[WT]::FindTitle("RamSpirit-hung"); "멈춤 안내 위치 $hc" | Out-File $log -Append -Encoding utf8; if ($hc -eq $null) { $script:fails += "S2 : 멈춘 앱 안내가 안 뜸" }
 Start-Sleep 14; [WT]::Cmd(100); Start-Sleep 6
 [WT]::Cmd(112); Start-Sleep 25; Snap "08-업데이트처럼다시켜기"
 [WT]::Cmd(101); Start-Sleep 12; Snap "08b-다시켠뒤탭2"

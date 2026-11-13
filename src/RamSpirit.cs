@@ -4487,6 +4487,16 @@ class MainForm : Form
         bool front = OursInFront() || W.GetForegroundWindow() == t.Hwnd || W.ClassOf(W.GetForegroundWindow()) == "Ghost";
         if (t.HungCover.TopMost != front) t.HungCover.TopMost = front;
         W.SetWindowPos(t.HungCover.Handle, front ? new IntPtr(-1) : IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+        // 유령 창(응답 없음)을 안내 밑으로
+        IntPtr cover = t.HungCover.Handle;
+        foreach (KeyValuePair<long, string> kv in W.All())
+        {
+            IntPtr g = new IntPtr(kv.Key);
+            if (W.ClassOf(g) != "Ghost") continue;
+            W.RECT gr; W.GetWindowRect(g, out gr);
+            if (!r.IntersectsWith(Rectangle.FromLTRB(gr.L, gr.T, gr.R, gr.B))) continue;
+            W.SetWindowPos(g, cover, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+        }
     }
     void HideHungCover(Target t)
     {
