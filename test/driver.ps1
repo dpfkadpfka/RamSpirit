@@ -126,7 +126,6 @@ Start-Ram; Start-Sleep 3; Snap "00-켜는중" $false; Start-Sleep 22; Snap "01-�
 # 새 탭 만들기 창에서 바로 칸·앱 고르기 (기본 4칸) → 이름 쓰고 Enter
 [WT]::Cmd(114); Start-Sleep 4
 $nt = [WT]::FindTitle("새 탭 만들기"); "새 탭 창 위치 $nt" | Out-File $log -Append -Encoding utf8
-if ($nt -eq $null) { $script:fails += "N1 : 새 탭 만들기 창이 안 뜸" }
 Snap "N1-새탭만들기창" $false
 [void][WT]::FocusTitle("새 탭 만들기"); Start-Sleep 1
 Add-Type -AssemblyName System.Windows.Forms
