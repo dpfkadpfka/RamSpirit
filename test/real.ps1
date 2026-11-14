@@ -142,7 +142,18 @@ function Probe($tag) {
   $all = $el.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
   $target = $null; $blank = $null
   foreach ($e in $all) { $c = $e.Current; if (-not $target -and $c.Name -eq "Menu" -and $c.ControlType.ProgrammaticName -match "Button") { $target = $e }; if (-not $target -and $c.ControlType.ProgrammaticName -match "Edit" -and $c.BoundingRectangle.Width -gt 50) { $target = $e } }
-  if (-not $target) { L "$tag : 누를 곳 못 찾음"; return "단추없음" }
+  if (-not $target) {
+    # 단추를 못 찾으면: 빈 곳을 누르고 Tab 키로 초점을 옮겨 화면이 바뀌는지 봄
+    $wr = $el.Current.BoundingRectangle
+    $area = New-Object System.Drawing.Rectangle ([int]$wr.X), ([int]$wr.Y), ([int]$wr.Width), ([int]$wr.Height)
+    [CW]::Click([int]($wr.X + 30), [int]($wr.Y + 30)); Start-Sleep 1
+    $before = [CW]::Grab($area)
+    [System.Windows.Forms.SendKeys]::SendWait("{TAB}{TAB}{TAB}"); Start-Sleep 2
+    $d = [CW]::Diff($before, [CW]::Grab($area))
+    Shot "$tag-탭키"
+    L "$tag : 단추 못 찾아 Tab 키로 확인, 바뀐 점 $d"
+    if ($d -gt 20) { return "반응" } else { return "먹통" }
+  }
   $r = $target.Current.BoundingRectangle
   $isEdit = $target.Current.ControlType.ProgrammaticName -match "Edit"
   if ($isEdit) { [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); $wr = $el.Current.BoundingRectangle; [CW]::Click([int]($wr.X + $wr.Width / 2), [int]($wr.Y + 40)); Start-Sleep 1 }
