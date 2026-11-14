@@ -40,6 +40,16 @@ jobs:
           Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where Name -match "Claude" | Select FullName
           Get-StartApps | Where Name -match "Claude"
           Get-Process | Where ProcessName -match "claude" | Select ProcessName, Id, MainWindowTitle
+      - name: ChatGPT 설치 시도
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-Command winget -ErrorAction SilentlyContinue | Select Source
+          winget --version
+          winget install --id 9NT1R1C2HH7J --source msstore --accept-source-agreements --accept-package-agreements --silent 2>&1 | Select-Object -Last 15
+          Get-StartApps | Where Name -match "ChatGPT|Grok|Perplexity"
+          $vers = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/o/OpenAI" -Headers @{ "User-Agent" = "x"; "Authorization" = "Bearer ${{ secrets.GITHUB_TOKEN }}" }
+          $vers | Select name
       - name: 점검
         continue-on-error: true
         shell: powershell
