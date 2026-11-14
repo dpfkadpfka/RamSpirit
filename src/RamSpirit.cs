@@ -37,6 +37,7 @@ static class W
     [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
     [DllImport("user32.dll", EntryPoint = "GetWindow")] static extern IntPtr GetWindowRel(IntPtr h, uint cmd);
     // 그 앱 창이 띄운(주인이 그 창인) 대화상자 찾기
+    public static IntPtr OwnerOf(IntPtr h) { return GetWindowRel(h, 4); }
     public static IntPtr OwnedPopup(IntPtr owner)
     {
         IntPtr found = IntPtr.Zero;
@@ -1672,7 +1673,7 @@ class Target
     public string Rgn = "";    // 마지막으로 자른 모양
     public int RgnLost;        // 앱이 잘라 둔 모양을 풀어 버린 횟수
     public int Top { get { return Lift; } }
-    public int Lift;  public int TabTick;  public int Stuck, Hung;  public bool HungShown;  public Form HungCover;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
+    public int Lift;  public int TabTick;  public int Stuck, Hung;  public bool HungShown;  public Form HungCover;  public int LastW, LastH;  public DateTime NudgeAt = DateTime.MinValue;  public bool MiniHidden;  public string Proc = "";  public long SpawnH; public int SpawnN;          // 웹 창의 크롬 제목 줄 높이만큼 위로 올려서 칸 제목 줄 밑에 감춤
     public Form HeadHost;     // 칸 제목 줄을 앱 창보다 위에 띄우는 작은 창 (웹 창일 때만)
     public Panel HeadSpace;   // 제목 줄을 HeadHost로 옮기는 동안 칸 안에서 자리를 지키는 빈칸
     public int MinW, MinH;   // 이 앱이 더 줄어들지 않는 최소 크기 (실제로 본 값)
@@ -4548,6 +4549,7 @@ class MainForm : Form
                 W.SetWindowPos(t.Hwnd, t.HeadHost.Handle, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000);
             }
             if (alive && CheckStuck(t)) continue;
+            if (alive && CheckSpawn(t)) continue;
             if (alive) { t.Missing = 0; KeepInCell(t); if (++t.TabTick % 3 == 0 && t.Proc != "chrome" && t.Proc != "msedge") W.HideTab(t.Hwnd); continue; }
             if (exists)
             {
@@ -4577,6 +4579,57 @@ class MainForm : Form
             start = DateTime.Now;
             if (timer != null) timer.Start();
         }
+    }
+
+    // 앱이 칸 밖에 새 본창을 따로 띄우면(ChatGPT 등) 칸의 예전 창은 앱이 버린 창이라 눌러도 반응이 없음
+    // → 2초 넘게 떠 있으면 새 창을 칸에 붙이고 예전 창은 숨김
+    bool CheckSpawn(Target t)
+    {
+        if (t.Web || t.Proc == "" || t.Proc == "chrome" || t.Proc == "msedge") { t.SpawnN = 0; return false; }
+        IntPtr cur = t.Hwnd;
+        uint pid; W.GetWindowThreadProcessId(cur, out pid);
+        string cls = W.ClassOf(cur);
+        IntPtr found = IntPtr.Zero;
+        foreach (KeyValuePair<long, string> kv in W.All())
+        {
+            if (kv.Key == cur.ToInt64() || used.Contains(kv.Key)) continue;
+            IntPtr h = new IntPtr(kv.Key);
+            uint p2; W.GetWindowThreadProcessId(h, out p2);
+            if (p2 != pid || W.ClassOf(h) != cls || W.OwnerOf(h) != IntPtr.Zero) continue;
+            int ex = W.GetWindowLong(h, -20);
+            if ((ex & 0x8) != 0 || (ex & 0x80) != 0) continue;              // 맨 위 고정 창·도구 창(빠른 입력창 등)은 제외
+            int st = W.GetWindowLong(h, -16);
+            if ((st & 0x00C00000) != 0x00C00000) continue;                   // 제목 줄 있는 보통 창만
+            W.RECT r; W.GetWindowRect(h, out r);
+            if (r.R - r.L < 400 || r.B - r.T < 300 || W.IsIconic(h)) continue;
+            if (!t.Matches(kv.Value, t.Proc)) continue;
+            bool other = false;
+            foreach (Target o in AllTargets()) if (o.Hwnd == h) other = true;
+            if (other) continue;
+            found = h; break;
+        }
+        if (found == IntPtr.Zero) { t.SpawnN = 0; return false; }
+        if (t.SpawnH != found.ToInt64()) { t.SpawnH = found.ToInt64(); t.SpawnN = 0; }
+        if (++t.SpawnN < 2) return false;
+        t.SpawnN = 0;
+        Log(t.App.Name + " 앱이 칸 밖에 새 창을 띄워서 새 창을 칸에 붙이고 예전 창은 숨김 (\"" + W.TitleOf(found) + "\")");
+        Rectangle cr = t.Body.RectangleToScreen(t.Body.ClientRectangle);
+        used.Remove(cur.ToInt64());
+        W.Detach(cur, t.OldStyle, cr.X, cr.Y, Math.Max(400, cr.Width), Math.Max(300, cr.Height));
+        W.ShowWindowAsync(cur, 0);
+        used.Add(found.ToInt64());
+        int old = W.Attach(found, Handle);
+        if (!origStyles.ContainsKey(found.ToInt64())) origStyles[found.ToInt64()] = old;
+        t.OldStyle = origStyles[found.ToInt64()];
+        t.Hwnd = found;
+        t.CapH = 0; t.AutoHide = false; t.Rgn = ""; t.RgnLost = 0; t.MinW = 0; t.MinH = 0; t.CapBtns = Rectangle.Empty;
+        t.Stuck = 0; t.Hung = 0; t.Missing = 0;
+        FindTitleBar(t, found, t.Proc);
+        t.Pending = true; t.CheckAt = DateTime.Now.AddMilliseconds(800);
+        if (timer != null && !timer.Enabled) { start = DateTime.Now; timer.Start(); }
+        SyncWindows();
+        BeginInvoke((System.Windows.Forms.MethodInvoker)SaveAttached);
+        return true;
     }
 
     // 칸 안 앱이 「먹통」처럼 보일 때
@@ -4971,7 +5024,12 @@ class MainForm : Form
         {
             string f = Path.Combine(Path.GetDirectoryName(configFile), "attach.log");
             string text = DateTime.Now.ToString("HH:mm:ss") + "  " + line + "\r\n";
-            if (!logStarted) { File.WriteAllText(f, "RamSpirit v" + Updater.Version + "\r\n" + text, Encoding.UTF8); logStarted = true; }
+            if (!logStarted)
+            {
+                // 다시 켜도 지난번 기록을 볼 수 있게 attach.prev.log로 남겨 둠
+                try { if (File.Exists(f)) File.Copy(f, Path.Combine(Path.GetDirectoryName(f), "attach.prev.log"), true); } catch { }
+                File.WriteAllText(f, "RamSpirit v" + Updater.Version + "\r\n" + text, Encoding.UTF8); logStarted = true;
+            }
             else File.AppendAllText(f, text, Encoding.UTF8);
         }
         catch { }
