@@ -1,0 +1,129 @@
+﻿######## Claude
+--- 창 처음
+  262500 'Claude' vis=True en=True owner=0 style=14C70000 ex=00280100 204,60 616x608
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+Claude-P1-붙인뒤 : 'Menu' (44,123) 누르니 바뀐 점 358
+--- 창 Claude-P1-붙인뒤
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: RamSpirit v2.3.26
+    log: 19:11:52  Claude ← 창 "Claude" (claude, Chrome_WidgetWin_1)
+    log: 19:11:58  Example 웹 ← 창 "example.com_/" (chrome, Chrome_WidgetWin_1)
+Claude-P2-닫고다시열기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P2-닫고다시열기
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:11:58  Example 웹 ← 창 "example.com_/" (chrome, Chrome_WidgetWin_1)
+    log: 19:12:27  Claude 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:12:31  Claude 창이 다시 떠서 칸에 다시 맞춤
+Claude-P3-탭왕복 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P3-탭왕복
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:12:46  Claude 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:12:47  Example 웹 ← 창 "Example Domain" (chrome, Chrome_WidgetWin_1)
+    log: 19:12:54  Claude 창을 「Two」 탭에서 지금 탭으로 옮김
+Claude-P4-다른탭에서다시열기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P4-다른탭에서다시열기
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:13:07  Claude 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:13:11  Claude 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:13:19  Claude 창이 다시 떠서 칸에 다시 맞춤
+Claude-P4b-원래탭으로 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P4b-원래탭으로
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:13:11  Claude 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:13:19  Claude 창이 다시 떠서 칸에 다시 맞춤
+    log: 19:13:34  Claude 창을 「Two」 탭에서 지금 탭으로 옮김
+Claude-P5-내렸다올리기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P5-내렸다올리기
+  262500 'Claude' vis=True en=True owner=66068 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:13:11  Claude 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:13:19  Claude 창이 다시 떠서 칸에 다시 맞춤
+    log: 19:13:34  Claude 창을 「Two」 탭에서 지금 탭으로 옮김
+Claude-P6-닫은채다시켜기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P6-닫은채다시켜기
+  262500 'Claude' vis=True en=True owner=131686 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: RamSpirit v2.3.26
+    log: 19:14:05  Example 웹 ← 다시 켜기 전 창 그대로
+    log: 19:14:06  Claude ← 창 "Claude" (claude, Chrome_WidgetWin_1)
+Claude-P7-다시켜기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P7-다시켜기
+  262500 'Claude' vis=True en=True owner=197214 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: RamSpirit v2.3.26
+    log: 19:14:55  Claude ← 다시 켜기 전 창 그대로
+    log: 19:14:55  Example 웹 ← 다시 켜기 전 창 그대로
+Claude-P8-다시켠뒤닫고열기 : 'Menu' (44,123) 누르니 바뀐 점 254
+--- 창 Claude-P8-다시켠뒤닫고열기
+  262500 'Claude' vis=True en=True owner=197214 style=94000000 ex=00280000 11,105 493x604
+  66054 'DDE Server Window' vis=False en=True owner=0 style=84000000 ex=00000000 0,0 0x0
+    log: 19:14:55  Example 웹 ← 다시 켜기 전 창 그대로
+    log: 19:15:35  Claude 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:15:40  Claude 창이 다시 떠서 칸에 다시 맞춤
+Claude 밖에 떠 있는 창 0
+ChatGPT 앱: ChatGPT Classic OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT
+ChatGPT 프로세스: ChatGPT Classic
+######## ChatGPT
+--- 창 처음
+  197256 'ChatGPT Classic' vis=True en=True owner=0 style=16CF0000 ex=00200100 284,62 456x596
+ChatGPT-P1-붙인뒤 : 단추 못 찾아 Tab 키로 확인, 바뀐 점 46
+--- 창 ChatGPT-P1-붙인뒤
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: RamSpirit v2.3.26
+    log: 19:16:55  ChatGPT ← 창 "ChatGPT Classic" (chatgpt classic, Chrome_WidgetWin_1)
+    log: 19:16:55  Example 웹 ← 창 "Example Domain" (chrome, Chrome_WidgetWin_1)
+ChatGPT-P2-닫고다시열기 : 'Email address' (100,549) 누르니 바뀐 점 347
+--- 창 ChatGPT-P2-닫고다시열기
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: 19:16:55  Example 웹 ← 창 "Example Domain" (chrome, Chrome_WidgetWin_1)
+    log: 19:17:29  ChatGPT 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:17:33  ChatGPT 창이 다시 떠서 칸에 다시 맞춤
+ChatGPT-P3-탭왕복 : 'Email address' (100,549) 누르니 바뀐 점 347
+--- 창 ChatGPT-P3-탭왕복
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: 19:17:49  ChatGPT 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:17:49  Example 웹 ← 창 "Example Domain" (chrome, Chrome_WidgetWin_1)
+    log: 19:17:57  ChatGPT 창을 「Two」 탭에서 지금 탭으로 옮김
+ChatGPT-P4-다른탭에서다시열기 : 단추 못 찾아 Tab 키로 확인, 바뀐 점 46
+--- 창 ChatGPT-P4-다른탭에서다시열기
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: 19:18:11  ChatGPT 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:18:15  ChatGPT 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:18:24  ChatGPT 창이 다시 떠서 칸에 다시 맞춤
+ChatGPT-P4b-원래탭으로 : 단추 못 찾아 Tab 키로 확인, 바뀐 점 46
+--- 창 ChatGPT-P4b-원래탭으로
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: 19:18:15  ChatGPT 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:18:24  ChatGPT 창이 다시 떠서 칸에 다시 맞춤
+    log: 19:18:38  ChatGPT 창을 「Two」 탭에서 지금 탭으로 옮김
+ChatGPT-P5-내렸다올리기 : 단추 못 찾아 Tab 키로 확인, 바뀐 점 46
+--- 창 ChatGPT-P5-내렸다올리기
+  197256 'ChatGPT Classic' vis=True en=True owner=459342 style=96000000 ex=00200000 11,105 493x604
+    log: 19:18:15  ChatGPT 창을 「Real」 탭에서 지금 탭으로 옮김
+    log: 19:18:24  ChatGPT 창이 다시 떠서 칸에 다시 맞춤
+    log: 19:18:38  ChatGPT 창을 「Two」 탭에서 지금 탭으로 옮김
+ChatGPT-P6-닫은채다시켜기 : 'Email address' (100,549) 누르니 바뀐 점 347
+--- 창 ChatGPT-P6-닫은채다시켜기
+  197256 'ChatGPT Classic' vis=True en=True owner=197282 style=96000000 ex=00200000 11,105 493x604
+    log: RamSpirit v2.3.26
+    log: 19:19:09  Example 웹 ← 다시 켜기 전 창 그대로
+    log: 19:19:10  ChatGPT ← 창 "ChatGPT Classic" (chatgpt classic, Chrome_WidgetWin_1)
+ChatGPT-P7-다시켜기 : 'Email address' (100,549) 누르니 바뀐 점 347
+--- 창 ChatGPT-P7-다시켜기
+  197256 'ChatGPT Classic' vis=True en=True owner=524906 style=96000000 ex=00200000 11,105 493x604
+    log: RamSpirit v2.3.26
+    log: 19:20:01  ChatGPT ← 다시 켜기 전 창 그대로
+    log: 19:20:01  Example 웹 ← 다시 켜기 전 창 그대로
+ChatGPT-P8-다시켠뒤닫고열기 : 단추 못 찾아 Tab 키로 확인, 바뀐 점 46
+--- 창 ChatGPT-P8-다시켠뒤닫고열기
+  197256 'ChatGPT Classic' vis=True en=True owner=524906 style=96000000 ex=00200000 11,105 493x604
+    log: 19:20:01  Example 웹 ← 다시 켜기 전 창 그대로
+    log: 19:20:42  ChatGPT 창이 닫혀서(숨겨져서) 칸에 다시 열기 안내
+    log: 19:20:47  ChatGPT 창이 다시 떠서 칸에 다시 맞춤
+ChatGPT 밖에 떠 있는 창 0
+== 결과: Claude-P1-붙인뒤=반응 / Claude-P2-닫고다시열기=반응 / Claude-P3-탭왕복=반응 / Claude-P4-다른탭에서다시열기=반응 / Claude-P4b-원래탭으로=반응 / Claude-P5-내렸다올리기=반응 / Claude-P6-닫은채다시켜기=반응 / Claude-P7-다시켜기=반응 / Claude-P8-다시켠뒤닫고열기=반응 / Claude-밖에뜬창=0 / ChatGPT-P1-붙인뒤=반응 / ChatGPT-P2-닫고다시열기=반응 / ChatGPT-P3-탭왕복=반응 / ChatGPT-P4-다른탭에서다시열기=반응 / ChatGPT-P4b-원래탭으로=반응 / ChatGPT-P5-내렸다올리기=반응 / ChatGPT-P6-닫은채다시켜기=반응 / ChatGPT-P7-다시켜기=반응 / ChatGPT-P8-다시켠뒤닫고열기=반응 / ChatGPT-밖에뜬창=0
