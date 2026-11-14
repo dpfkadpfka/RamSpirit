@@ -43,7 +43,7 @@ jobs:
       - name: 점검
         continue-on-error: true
         shell: powershell
-        run: ./test/exp.ps1
+        run: ./test/real.ps1
       - name: 결과 올리기
         if: always()
         shell: bash

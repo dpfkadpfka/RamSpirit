@@ -162,19 +162,19 @@ function Uia($h, $max) {
   foreach ($e in $all) { if ($i -ge $max) { break }; $c = $e.Current; if ($c.Name -or $c.ControlType.ProgrammaticName -match 'Edit|Button|Hyperlink') { L ("  [" + $c.ControlType.ProgrammaticName + "] '" + $c.Name + "' " + $c.BoundingRectangle + " focusable=" + $c.IsKeyboardFocusable); $i++ } }
 }
 
-L "== 1. 앱만 켜기"
-Start-Sleep 5
-$cl = Get-StartApps | Where-Object Name -eq "Claude"; L ("시작 메뉴: " + ($cl | Out-String))
-if (-not (Get-Process claude -ErrorAction SilentlyContinue)) { Start-Process "shell:AppsFolder\$($cl.AppID)"; Start-Sleep 25 }
-DumpWins "처음"
-Shot "r0-앱만"
-$h0 = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
-if ($h0) { L "UIA:"; Uia $h0 40 }
+$res = @()
+function R($tag) { $x = Probe $tag; $script:res += "$tag=$x"; DumpWins $tag; Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 -Tail 4 | ForEach-Object { L "    log: $_" } }
+function CloseClaude { $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1); if ($h) { [WT]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }; Start-Sleep 5 }
 
-L "== 2. RamSpirit 켜기"
+$cl = Get-StartApps | Where-Object Name -eq "Claude"
+Start-Process "shell:AppsFolder\$($cl.AppID)"; Start-Sleep 25
 New-Item -ItemType Directory -Force "$env:APPDATA\RamSpirit" | Out-Null
 @"
 #tab`tReal
+Claude`tClaude`thttps://claude.ai/new`t#d97757`t1
+Example 웹`tExample`thttps://example.com/`t#0ea5e9`t0`tweb
+#ratio`t1,1`t1
+#tab`tTwo
 Claude`tClaude`thttps://claude.ai/new`t#d97757`t1
 Example 웹`tExample`thttps://example.com/`t#0ea5e9`t0`tweb
 #ratio`t1,1`t1
@@ -184,19 +184,22 @@ Example 웹`tExample`thttps://example.com/`t#0ea5e9`t0`tweb
 #closeapps`t1
 "@ | Set-Content "$env:APPDATA\RamSpirit\apps.txt" -Encoding UTF8
 $env:RAMSPIRIT_TEST = "1"; Start-Process C:\t\RamSpirit.exe; Start-Sleep 30
-DumpWins "붙인 뒤"; Shot "r1-붙임"
-$p1 = Probe "P1-붙인뒤"
-$h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
-if ($h) { L "UIA:"; Uia $h 40 }
-
-L "== 3. 앱 닫기(WM_CLOSE)"
-[WT]::CloseApp("Claude", "claude"); Start-Sleep 6
-DumpWins "닫은 뒤"; Shot "r2-닫음"
-L "== 4. 칸 눌러 다시 열기"
-[WT]::Cmd(113); Start-Sleep 12
-DumpWins "다시 연 뒤"; Shot "r3-다시엶"
-$p2 = Probe "P2-다시연뒤"
-L "== 결과: 붙인 뒤 $p1 / 닫았다 다시 연 뒤 $p2"
-$h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
-if ($h) { L "UIA:"; Uia $h 40 }
-Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 | ForEach-Object { L $_ }
+R "P1-붙인뒤"
+L "== 앱 X로 닫고 칸 눌러 다시 열기"
+CloseClaude; Shot "c1-닫음"; [WT]::Cmd(113); Start-Sleep 12; R "P2-닫고다시열기"
+L "== 탭 왔다 갔다"
+[WT]::Cmd(101); Start-Sleep 8; [WT]::Cmd(100); Start-Sleep 8; R "P3-탭왕복"
+L "== 닫은 채로 다른 탭(같은 앱 칸)으로 가서 다시 열기"
+CloseClaude; [WT]::Cmd(101); Start-Sleep 8; Shot "c4-다른탭"; [WT]::Cmd(113); Start-Sleep 12; R "P4-다른탭에서다시열기"
+[WT]::Cmd(100); Start-Sleep 8; R "P4b-원래탭으로"
+L "== 내렸다 올리기"
+[WT]::Cmd(110); Start-Sleep 4; [WT]::Cmd(111); Start-Sleep 6; R "P5-내렸다올리기"
+L "== 닫은 채로 업데이트처럼 다시 켜기"
+CloseClaude; [WT]::Cmd(112); Start-Sleep 35; Shot "c6-다시켬"; [WT]::Cmd(113); Start-Sleep 12; R "P6-닫은채다시켜기"
+L "== 그냥 업데이트처럼 다시 켜기"
+[WT]::Cmd(112); Start-Sleep 35; R "P7-다시켜기"
+L "== 다시 켠 뒤 닫고 다시 열기"
+CloseClaude; [WT]::Cmd(113); Start-Sleep 12; R "P8-다시켠뒤닫고열기"
+Shot "c9-끝"
+L ("== 결과: " + ($res -join " / "))
+$n = 0; $s = 0; [void][WT]::Report([ref]$s, [ref]$n); L "밖에 떠 있는 창 $s"
