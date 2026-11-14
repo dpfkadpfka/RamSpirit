@@ -2943,11 +2943,11 @@ class MainForm : Form
             grid.SetBounds(RX, 104, RW, 540 - 84 - 72 - 104 - 4);
             Action rebuild = null;
             int cx0 = 3;
-            foreach (int n in new int[] { 2, 4, 6, 8 })
+            foreach (int nc in new int[] { 2, 4, 6, 8 })
             {
-                int nn = n;
-                var cb = new IconBtn(); cb.Seg = true; cb.Text = n + "칸"; cb.Radius = 7; cb.Active = n == count;
-                cb.Font = new Font("Malgun Gothic", 9.5f, n == count ? FontStyle.Bold : FontStyle.Regular);
+                int nn = nc;
+                var cb = new IconBtn(); cb.Seg = true; cb.Text = nc + "칸"; cb.Radius = 7; cb.Active = nc == count;
+                cb.Font = new Font("Malgun Gothic", 9.5f, nc == count ? FontStyle.Bold : FontStyle.Regular);
                 cb.SetBounds(cx0, 3, 64, 30); cx0 += 66;
                 cb.Click += delegate
                 {
