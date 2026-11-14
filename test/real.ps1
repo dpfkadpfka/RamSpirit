@@ -163,7 +163,7 @@ function Uia($h, $max) {
 }
 
 $res = @()
-function R($tag) { $x = Probe $tag; $script:res += "$tag=$x"; DumpWins $tag; Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 -Tail 4 | ForEach-Object { L "    log: $_" } }
+function Chk($tag) { $x = Probe $tag; $script:res += "$tag=$x"; DumpWins $tag; Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 -Tail 4 | ForEach-Object { L "    log: $_" } }
 function CloseClaude { $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1); if ($h) { [WT]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }; Start-Sleep 5 }
 
 $cl = Get-StartApps | Where-Object Name -eq "Claude"
@@ -184,22 +184,22 @@ Example 웹`tExample`thttps://example.com/`t#0ea5e9`t0`tweb
 #closeapps`t1
 "@ | Set-Content "$env:APPDATA\RamSpirit\apps.txt" -Encoding UTF8
 $env:RAMSPIRIT_TEST = "1"; Start-Process C:\t\RamSpirit.exe; Start-Sleep 30
-R "P1-붙인뒤"
+Chk "P1-붙인뒤"
 L "== 앱 X로 닫고 칸 눌러 다시 열기"
-CloseClaude; Shot "c1-닫음"; [WT]::Cmd(113); Start-Sleep 12; R "P2-닫고다시열기"
+CloseClaude; Shot "c1-닫음"; [WT]::Cmd(113); Start-Sleep 12; Chk "P2-닫고다시열기"
 L "== 탭 왔다 갔다"
-[WT]::Cmd(101); Start-Sleep 8; [WT]::Cmd(100); Start-Sleep 8; R "P3-탭왕복"
+[WT]::Cmd(101); Start-Sleep 8; [WT]::Cmd(100); Start-Sleep 8; Chk "P3-탭왕복"
 L "== 닫은 채로 다른 탭(같은 앱 칸)으로 가서 다시 열기"
-CloseClaude; [WT]::Cmd(101); Start-Sleep 8; Shot "c4-다른탭"; [WT]::Cmd(113); Start-Sleep 12; R "P4-다른탭에서다시열기"
-[WT]::Cmd(100); Start-Sleep 8; R "P4b-원래탭으로"
+CloseClaude; [WT]::Cmd(101); Start-Sleep 8; Shot "c4-다른탭"; [WT]::Cmd(113); Start-Sleep 12; Chk "P4-다른탭에서다시열기"
+[WT]::Cmd(100); Start-Sleep 8; Chk "P4b-원래탭으로"
 L "== 내렸다 올리기"
-[WT]::Cmd(110); Start-Sleep 4; [WT]::Cmd(111); Start-Sleep 6; R "P5-내렸다올리기"
+[WT]::Cmd(110); Start-Sleep 4; [WT]::Cmd(111); Start-Sleep 6; Chk "P5-내렸다올리기"
 L "== 닫은 채로 업데이트처럼 다시 켜기"
-CloseClaude; [WT]::Cmd(112); Start-Sleep 35; Shot "c6-다시켬"; [WT]::Cmd(113); Start-Sleep 12; R "P6-닫은채다시켜기"
+CloseClaude; [WT]::Cmd(112); Start-Sleep 35; Shot "c6-다시켬"; [WT]::Cmd(113); Start-Sleep 12; Chk "P6-닫은채다시켜기"
 L "== 그냥 업데이트처럼 다시 켜기"
-[WT]::Cmd(112); Start-Sleep 35; R "P7-다시켜기"
+[WT]::Cmd(112); Start-Sleep 35; Chk "P7-다시켜기"
 L "== 다시 켠 뒤 닫고 다시 열기"
-CloseClaude; [WT]::Cmd(113); Start-Sleep 12; R "P8-다시켠뒤닫고열기"
+CloseClaude; [WT]::Cmd(113); Start-Sleep 12; Chk "P8-다시켠뒤닫고열기"
 Shot "c9-끝"
 L ("== 결과: " + ($res -join " / "))
 $n = 0; $s = 0; [void][WT]::Report([ref]$s, [ref]$n); L "밖에 떠 있는 창 $s"
