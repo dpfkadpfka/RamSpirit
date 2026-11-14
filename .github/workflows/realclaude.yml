@@ -1,0 +1,64 @@
+# 진짜 Claude 데스크톱 앱으로 점검 (realtest 브랜치)
+name: RamSpirit 진짜 앱 점검
+
+on:
+  push:
+    branches: [realtest]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 만들기
+        shell: cmd
+        run: |
+          set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
+          mkdir C:\t
+          "%FW%\csc.exe" /nologo /target:winexe /optimize /codepage:65001 /win32icon:src\icon.ico /lib:"%FW%\WPF" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:WindowsBase.dll /r:UIAutomationClient.dll /r:UIAutomationTypes.dll /resource:src\icons\icon1.ico,icon1.ico /resource:src\icons\icon2.ico,icon2.ico /resource:src\icons\icon3.ico,icon3.ico /resource:src\icons\icon4.ico,icon4.ico /resource:src\icons\icon5.ico,icon5.ico /resource:src\icons\icon6.ico,icon6.ico /resource:src\icons\icon7.ico,icon7.ico /resource:src\icons\icon1.png,icon1.png /resource:src\icons\icon2.png,icon2.png /resource:src\icons\icon3.png,icon3.png /resource:src\icons\icon4.png,icon4.png /resource:src\icons\icon5.png,icon5.png /resource:src\icons\icon6.png,icon6.png /resource:src\icons\icon7.png,icon7.png /out:C:\t\RamSpirit.exe src\RamSpirit.cs
+      - name: 진짜 앱 설치
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $vers = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/a/Anthropic/Claude" -Headers @{ "User-Agent" = "x"; "Authorization" = "Bearer ${{ secrets.GITHUB_TOKEN }}" }
+          $v = ($vers | Where-Object type -eq dir | Sort-Object { [version]($_.name -replace '[^0-9.]','') } | Select-Object -Last 1).name
+          Write-Host "version $v"
+          $y = Invoke-RestMethod "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/a/Anthropic/Claude/$v/Anthropic.Claude.installer.yaml"
+          Write-Host $y
+          $url = ([regex]::Matches($y, 'InstallerUrl:\s*(\S+)') | Where-Object { $_.Groups[1].Value -match 'x64|win' } | Select-Object -First 1).Groups[1].Value
+          if (-not $url) { $url = ([regex]::Match($y, 'InstallerUrl:\s*(\S+)')).Groups[1].Value }
+          Write-Host "url $url"
+          if ($url -match '\.msix') { Invoke-WebRequest $url -OutFile C:\t\Claude.msix; Add-AppxPackage C:\t\Claude.msix }
+          else { Invoke-WebRequest $url -OutFile C:\t\ClaudeSetup.exe; Get-Item C:\t\ClaudeSetup.exe | Select Length; Start-Process C:\t\ClaudeSetup.exe -ArgumentList "--silent" -Wait }
+          Start-Sleep 20
+          Get-ChildItem "$env:LOCALAPPDATA\AnthropicClaude" -ErrorAction SilentlyContinue | Select Name
+          Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where Name -match "Claude" | Select FullName
+          Get-StartApps | Where Name -match "Claude"
+          Get-Process | Where ProcessName -match "claude" | Select ProcessName, Id, MainWindowTitle
+      - name: ChatGPT 설치 시도
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-Command winget -ErrorAction SilentlyContinue | Select Source
+          winget --version
+          winget install --id 9NT1R1C2HH7J --source msstore --accept-source-agreements --accept-package-agreements --silent 2>&1 | Select-Object -Last 15
+          Get-StartApps | Where Name -match "ChatGPT|Grok|Perplexity"
+          $vers = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/o/OpenAI" -Headers @{ "User-Agent" = "x"; "Authorization" = "Bearer ${{ secrets.GITHUB_TOKEN }}" }
+          $vers | Select name
+      - name: 점검
+        continue-on-error: true
+        shell: powershell
+        run: ./test/real.ps1
+      - name: 결과 올리기
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/o && cp -r /c/t/out/. /tmp/o/ || true
+          cd /tmp/o && git init -q && git checkout -q -b realtest-out && git add -A
+          git -c user.name=bot -c user.email=bot@x commit -qm "run ${{ github.run_id }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" realtest-out

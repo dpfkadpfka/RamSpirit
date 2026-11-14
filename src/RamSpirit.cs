@@ -89,6 +89,18 @@ static class W
     [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hook);
 
     // 붙어 있던 앱을 원래 창 모양으로 돌려놓은 뒤 닫기 (X 버튼을 누른 것과 같음)
+    // 앱이 스스로 숨긴 창(앱의 X로 닫은 창)은 밖에서 보이게 하면 화면만 뜨고 눌러도 반응이 없음(Electron 앱: Claude·ChatGPT 등)
+    // → 원래 모양으로만 되돌리고 숨긴 채로 둠. 다시 띄우는 건 앱이 직접 하게 함
+    public static void Release(IntPtr h, int oldStyle)
+    {
+        if (!IsWindow(h)) return;
+        Unclip(h);
+        SetOwner(h, IntPtr.Zero);
+        SetWindowLong(h, GWL_STYLE, (oldStyle & ~WS_VISIBLE) | (GetWindowLong(h, GWL_STYLE) & WS_VISIBLE));
+        SetWindowPos(h, IntPtr.Zero, 100, 100, 1100, 800, NOZ | NOACT | FRAME | 0x4000);
+        if (IsWindowVisible(h)) ShowTab(h);
+    }
+
     public static void CloseApp(IntPtr h, int oldStyle)
     {
         if (!IsWindow(h)) return;
@@ -140,6 +152,7 @@ static class W
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
 
     const int GWL_STYLE = -16, GWLP_HWNDPARENT = -8;
+    const int WS_VISIBLE = 0x10000000;
     const int WS_POPUP = unchecked((int)0x80000000), WS_CAPTION = 0x00C00000, WS_THICKFRAME = 0x00040000,
               WS_SYSMENU = 0x00080000, WS_MINIMIZEBOX = 0x00020000, WS_MAXIMIZEBOX = 0x00010000, WS_CHILD = 0x40000000;
     const uint NOSIZE = 0x0001, NOMOVE = 0x0002, NOZ = 0x0004, NOACT = 0x0010, FRAME = 0x0020;
@@ -2235,20 +2248,27 @@ class MainForm : Form
             if (t.TooSmall) { ToggleSolo(t); return; }
             if (t.Closed && t.Hwnd != IntPtr.Zero && W.IsWindow(t.Hwnd))
             {
-                t.Closed = false; t.Wait.Cursor = Cursors.Default; t.Rgn = "";
+                t.Wait.Cursor = Cursors.Default; t.Rgn = "";
                 t.Wait.Text = t.App.Name + " 다시 여는 중..."; t.Wait.Visible = true;
                 IntPtr old = t.Hwnd;
-                W.ShowWindowAsync(old, 5);
-                SyncWindows();   // Hidden이므로 다시 보이게 함
-                // 앱이 숨긴 창은 밖에서 보이게 해도 다시 안 나오는 경우가 있음(Claude 등) → 앱을 한 번 더 켜서 앱이 직접 창을 띄우게 함
-                if (!t.Web && !t.App.IsSpecial) Launch(t);
-                var later = new Timer(); later.Interval = 2500;
+                if (!t.Web && !t.App.IsSpecial)
+                {
+                    // 앱이 숨긴 창을 밖에서 보이게 하면 먹통이 됨(진짜 Claude 앱으로 확인) → 앱을 한 번 더 켜서 앱이 직접 창을 띄우게 하고,
+                    // 창이 다시 보이면 WatchApps가 칸에 맞춤(t.Closed는 그때 풂)
+                    if (W.IsWindowVisible(old)) W.ShowWindowAsync(old, 0);
+                    Launch(t);
+                }
+                else { t.Closed = false; W.ShowWindowAsync(old, 5); SyncWindows(); }
+                var later = new Timer(); later.Interval = 5000;
                 later.Tick += delegate
                 {
                     later.Stop(); later.Dispose();
-                    if (t.Hwnd == old && W.IsWindow(old) && W.IsWindowVisible(old)) { t.Wait.Visible = false; t.Rgn = ""; SyncWindows(); return; }
-                    // 그래도 안 보이면 그 창은 놓고, 앱이 새로 띄운 창을 찾아 칸에 붙임
-                    if (t.Hwnd == old) { used.Remove(old.ToInt64()); t.Hwnd = IntPtr.Zero; t.Hidden = false; }
+                    if (t.Hwnd == old && W.IsWindow(old) && W.IsWindowVisible(old)) { t.Closed = false; t.Wait.Visible = false; t.Rgn = ""; SyncWindows(); return; }
+                    if (t.Hwnd != old) return;   // 그 사이 다른 창이 칸에 붙음
+                    t.Closed = false;
+                    // 그래도 안 보이면 그 창은 원래 모양으로 놓고, 앱이 새로 띄운 창을 찾아 칸에 붙임
+                    W.Release(old, t.OldStyle);
+                    used.Remove(old.ToInt64()); t.Hwnd = IntPtr.Zero; t.Hidden = false;
                     Log(t.App.Name + " 숨긴 창이 다시 안 보여서 새 창을 찾음");
                     Reopen(t);
                 };
@@ -2296,8 +2316,8 @@ class MainForm : Form
     {
         if (t.Hwnd != IntPtr.Zero)
         {
-            W.Detach(t.Hwnd, t.OldStyle, 100, 100, 1100, 800);
-            W.ShowWindow(t.Hwnd, 6);
+            if (t.Closed) W.Release(t.Hwnd, t.OldStyle);
+            else { W.Detach(t.Hwnd, t.OldStyle, 100, 100, 1100, 800); W.ShowWindow(t.Hwnd, 6); }
             used.Remove(t.Hwnd.ToInt64());
             released.Add(t.Hwnd.ToInt64());
             t.Hwnd = IntPtr.Zero;
@@ -2644,8 +2664,14 @@ class MainForm : Form
         t.Hwnd = o.Hwnd; t.OldStyle = o.OldStyle; t.Web = o.Web;
         t.Hidden = true; t.Pending = false; t.Lost = false; t.Lent = false; t.Missing = 0; t.Misfit = 0;
         t.CapH = o.CapH; t.AutoHide = o.AutoHide; t.Rgn = ""; t.TooSmall = false; t.MinW = 0; t.MinH = 0;
-        t.WantNewChat = false; t.Closed = false; o.Closed = false;
+        t.WantNewChat = false; t.Closed = o.Closed; o.Closed = false;
         t.Wait.Visible = false; t.Wait.Cursor = Cursors.Default;
+        if (t.Closed)
+        {
+            // 앱 X로 닫혀 있던 창 → 밖에서 보이게 하지 않고 「눌러서 다시 열기」 그대로
+            t.Wait.Text = t.App.Name + " 창을 닫았어요\n여기를 누르면 다시 열어요";
+            t.Wait.Cursor = Cursors.Hand; t.Wait.Visible = true;
+        }
         o.Hwnd = IntPtr.Zero; o.Hidden = false; o.Pending = false; o.TooSmall = false; o.Lent = true; o.WantNewChat = false;
         if (o.Guard != null) { o.Guard.Dispose(); o.Guard = null; }
         o.Wait.Text = o.App.Name + "은(는) 「" + toTab + "」 탭에서 쓰는 중이에요\n이 탭으로 돌아오면 다시 여기로 와요";
@@ -4870,7 +4896,7 @@ class MainForm : Form
             for (int k = 0; k < w.T.Count; k++)
             {
                 Target t = w.T[k];
-                if (t.Hwnd != IntPtr.Zero && restarting)
+                if (t.Hwnd != IntPtr.Zero && restarting && !t.Closed)
                     hand.Add(w.Name + "\t" + k + "\t" + t.Hwnd.ToInt64() + "\t" + (t.Web ? "1" : "0") + "\t" + t.Proc);
             }
         if (restarting)
@@ -4888,11 +4914,12 @@ class MainForm : Form
         {
             if (t.Hwnd != IntPtr.Zero)
             {
-                IntPtr h = t.Hwnd; int st = t.OldStyle, k = i; bool rs = restarting;
+                IntPtr h = t.Hwnd; int st = t.OldStyle, k = i; bool rs = restarting, closed = t.Closed;
                 var th = new System.Threading.Thread(delegate ()
                 {
                     try
                     {
+                        if (closed) { W.Release(h, st); return; }   // 앱 X로 닫힌 창: 숨긴 채로 원래 모양만
                         if (keep) W.Detach(h, st, 80 + k * 40, 80 + k * 40, 1100, 800);
                         else W.CloseApp(h, st);
                         if (rs) W.ShowWindowAsync(h, 0);   // 새 버전이 바로 다시 붙임 → 그 사이 따로 떠 보이지 않게
@@ -5113,7 +5140,7 @@ class MainForm : Form
         {
             var sb = new StringBuilder();
             foreach (Target t in AllTargets())
-                if (t.Hwnd != IntPtr.Zero) sb.Append(t.Hwnd.ToInt64()).Append('\t').Append(t.OldStyle).Append("\r\n");
+                if (t.Hwnd != IntPtr.Zero) sb.Append(t.Hwnd.ToInt64()).Append('\t').Append(t.OldStyle).Append(t.Closed ? "\t1" : "").Append("\r\n");
             string txt = sb.ToString();
             if (txt == attachedLast) return;
             attachedLast = txt;
@@ -5137,7 +5164,8 @@ class MainForm : Form
                 if (p.Length < 2 || !long.TryParse(p[0], out hv) || !int.TryParse(p[1], out st)) continue;
                 IntPtr h = new IntPtr(hv);
                 if (!W.IsWindow(h)) continue;
-                W.Detach(h, st, 80 + i * 40, 80 + i * 40, 1100, 800);   // 제목 줄·닫기 단추가 다시 보이게
+                if (p.Length >= 3 && p[2] == "1") W.Release(h, st);        // 앱 X로 닫혀 있던 창은 숨긴 채로
+                else W.Detach(h, st, 80 + i * 40, 80 + i * 40, 1100, 800);   // 제목 줄·닫기 단추가 다시 보이게
                 released.Add(hv);                                         // 웹 창도 다시 붙을 수 있게
                 i++;
             }
@@ -5564,7 +5592,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.26";
+    public const string Version = "2.3.27";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 
