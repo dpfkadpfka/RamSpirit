@@ -223,9 +223,9 @@ function V2($name, [scriptblock]$act) {
   L ("   되돌린 뒤: " + (Probe "$name-되돌림"))
 }
 V2 "I-밖에서숨기고보이기" { param($h) [EX]::ShowWindow($h, 0) | Out-Null; Pump 3; [EX]::ShowWindow($h, 5) | Out-Null; Pump 3 }
-V2 "I2-SWP로숨기고보이기" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x1|0x2|0x4|0x10|0x80) | Out-Null; Pump 3; [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x1|0x2|0x4|0x10|0x40) | Out-Null; Pump 3 }
+V2 "I2-SWP로숨기고보이기" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x97) | Out-Null; Pump 3; [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x57) | Out-Null; Pump 3 }
 V2 "I3-최소화했다복원" { param($h) [EX]::ShowWindow($h, 6) | Out-Null; Pump 3; [EX]::ShowWindow($h, 9) | Out-Null; Pump 3 }
-V2 "I4-화면밖으로옮겼다되돌림" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, -32000, -32000, 0, 0, 0x1|0x4|0x10|0x4000) | Out-Null; Pump 3; [EX]::Place($h); Pump 3 }
+V2 "I4-화면밖으로옮겼다되돌림" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, -32000, -32000, 0, 0, 0x4015) | Out-Null; Pump 3; [EX]::Place($h); Pump 3 }
 V2 "I5-숨기고보이기_10초" { param($h) [EX]::ShowWindow($h, 0) | Out-Null; Pump 10; [EX]::ShowWindow($h, 5) | Out-Null; Pump 3 }
 V2 "K-닫힘후밖에서보이고_앱다시켜기" { param($h) [EX]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 4; [EX]::ShowWindow($h, 5) | Out-Null; Pump 2; Launch; Pump 6 }
 V2 "L-닫힘후밖에서보이고_숨기고_앱다시켜기" { param($h) [EX]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 4; [EX]::ShowWindow($h, 5) | Out-Null; Pump 2; [EX]::ShowWindow($h, 0) | Out-Null; Pump 1; Launch; Pump 6 }
