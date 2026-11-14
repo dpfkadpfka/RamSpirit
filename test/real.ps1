@@ -162,6 +162,15 @@ function Uia($h, $max) {
   foreach ($e in $all) { if ($i -ge $max) { break }; $c = $e.Current; if ($c.Name -or $c.ControlType.ProgrammaticName -match 'Edit|Button|Hyperlink') { L ("  [" + $c.ControlType.ProgrammaticName + "] '" + $c.Name + "' " + $c.BoundingRectangle + " focusable=" + $c.IsKeyboardFocusable); $i++ } }
 }
 
+L "== ChatGPT 살펴보기"
+$g = Get-StartApps | Where-Object Name -match "ChatGPT"; L ($g | Out-String)
+Start-Process "shell:AppsFolder\$($g[0].AppID)"; Start-Sleep 30
+foreach ($h in [CW]::Wins("chatgpt")) { L ("  " + [CW]::Desc($h)) }
+Shot "g0-ChatGPT"
+$hg = ([CW]::Wins("chatgpt") | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
+if ($hg) { $el = [System.Windows.Automation.AutomationElement]::FromHandle($hg); $all = $el.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition); $i=0; foreach ($e in $all) { if ($i -gt 80) { break }; $c = $e.Current; if ($c.Name) { L ("  [" + $c.ControlType.ProgrammaticName + "] '" + $c.Name + "' " + $c.BoundingRectangle); $i++ } } }
+Get-Process | Where-Object ProcessName -match "chatgpt" | Select ProcessName, Id | Out-String | L
+exit
 $res = @()
 function Chk($tag) { $x = Probe $tag; $script:res += "$tag=$x"; DumpWins $tag; Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 -Tail 4 | ForEach-Object { L "    log: $_" } }
 function CloseClaude { $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1); if ($h) { [WT]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }; Start-Sleep 5 }
