@@ -209,11 +209,24 @@ function Variant($name, [scriptblock]$attach, [scriptblock]$reopen) {
   L ("   되돌린 뒤: " + (Probe "$name-되돌림"))
 }
 $full = { param($h) [EX]::Style($h); [EX]::Owner($h, $O); [EX]::Place($h); [EX]::Clip($h) }
-Variant "A-전부_앱다시켜기" $full { param($h) Launch }
-Variant "B-주인만" { param($h) [EX]::Owner($h, $O) } { param($h) Launch }
-Variant "C-모양만" { param($h) [EX]::Style($h) } { param($h) Launch }
-Variant "D-자르기만" { param($h) [EX]::Clip($h) } { param($h) Launch }
-Variant "E-닫히면풀고_앱다시켜기" $full { param($h) [EX]::Restore($h); Launch }
-Variant "F-다시뜬뒤_풀었다붙이기" $full { param($h) Launch; Pump 6; [EX]::Restore($h); Pump 1; & $full $h }
-Variant "G-밖에서보이기만" $full { param($h) [EX]::ShowWindow($h, 5) | Out-Null }
-Variant "H-주인없이_전부" { param($h) [EX]::Style($h); [EX]::Place($h); [EX]::Clip($h) } { param($h) Launch }
+# 탭 바꿀 때처럼 밖에서 숨겼다가 보이기
+function V2($name, [scriptblock]$act) {
+  $h = W
+  & $full $h; Pump 2
+  $a = Probe "$name-붙임"
+  & $act $h
+  $h2 = W
+  $b = Probe "$name-뒤"
+  L ("$name : 붙임=$a / 뒤=$b / 같은창=" + ($h -eq $h2) + " " + [CW]::Desc($h2))
+  # 다음 실험을 위해 앱이 스스로 숨기고 다시 띄우게 해서 정상으로
+  [EX]::Restore($h2); [EX]::PostMessage($h2, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 3; Launch; Pump 6
+  L ("   되돌린 뒤: " + (Probe "$name-되돌림"))
+}
+V2 "I-밖에서숨기고보이기" { param($h) [EX]::ShowWindow($h, 0) | Out-Null; Pump 3; [EX]::ShowWindow($h, 5) | Out-Null; Pump 3 }
+V2 "I2-SWP로숨기고보이기" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x1|0x2|0x4|0x10|0x80) | Out-Null; Pump 3; [EX]::SetWindowPos($h, [IntPtr]::Zero, 0,0,0,0, 0x1|0x2|0x4|0x10|0x40) | Out-Null; Pump 3 }
+V2 "I3-최소화했다복원" { param($h) [EX]::ShowWindow($h, 6) | Out-Null; Pump 3; [EX]::ShowWindow($h, 9) | Out-Null; Pump 3 }
+V2 "I4-화면밖으로옮겼다되돌림" { param($h) [EX]::SetWindowPos($h, [IntPtr]::Zero, -32000, -32000, 0, 0, 0x1|0x4|0x10|0x4000) | Out-Null; Pump 3; [EX]::Place($h); Pump 3 }
+V2 "I5-숨기고보이기_10초" { param($h) [EX]::ShowWindow($h, 0) | Out-Null; Pump 10; [EX]::ShowWindow($h, 5) | Out-Null; Pump 3 }
+V2 "K-닫힘후밖에서보이고_앱다시켜기" { param($h) [EX]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 4; [EX]::ShowWindow($h, 5) | Out-Null; Pump 2; Launch; Pump 6 }
+V2 "L-닫힘후밖에서보이고_숨기고_앱다시켜기" { param($h) [EX]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 4; [EX]::ShowWindow($h, 5) | Out-Null; Pump 2; [EX]::ShowWindow($h, 0) | Out-Null; Pump 1; Launch; Pump 6 }
+V2 "M-닫힘후_앱다시켜기만" { param($h) [EX]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Pump 4; Launch; Pump 6 }
