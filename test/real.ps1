@@ -108,11 +108,8 @@ $out = "C:\t\out"; New-Item -ItemType Directory -Force $out | Out-Null
 $log = "$out\report.txt"
 function L($s) { $s | Out-File $log -Append -Encoding utf8; Write-Host $s }
 function Shot($n) { try { [WT]::Shot("$out\$n.png") } catch { L "찍기 실패 $_" } }
-function ClaudeWins {
-  $r = @()
-  foreach ($p in Get-Process claude -ErrorAction SilentlyContinue) { }
-  Add-Type -TypeDefinition @"
-using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Diagnostics;
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Diagnostics; using System.Drawing;
 public static class CW {
   delegate bool EP(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] static extern bool EnumWindows(EP p, IntPtr l);
@@ -124,12 +121,38 @@ public static class CW {
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, UIntPtr e);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
-  public static List<IntPtr> Main() { var l = new List<IntPtr>(); EnumWindows(delegate (IntPtr h, IntPtr x) { int pid; GetWindowThreadProcessId(h, out pid); string pn=""; try { pn = Process.GetProcessById(pid).ProcessName.ToLower(); } catch {} var c=new StringBuilder(256); GetClassName(h,c,256); var t=new StringBuilder(256); GetWindowText(h,t,256); if (pn=="claude" && c.ToString()=="Chrome_WidgetWin_1" && t.Length>0) l.Add(h); return true; }, IntPtr.Zero); return l; }
+  public static List<IntPtr> Wins(string proc) { var l = new List<IntPtr>(); EnumWindows(delegate (IntPtr h, IntPtr x) { int pid; GetWindowThreadProcessId(h, out pid); string pn=""; try { pn = Process.GetProcessById(pid).ProcessName.ToLower(); } catch {} var c=new StringBuilder(256); GetClassName(h,c,256); var t=new StringBuilder(256); GetWindowText(h,t,256); if (pn==proc && c.ToString()=="Chrome_WidgetWin_1" && t.Length>0) l.Add(h); return true; }, IntPtr.Zero); return l; }
   public static string Desc(IntPtr h) { var t=new StringBuilder(256); GetWindowText(h,t,256); RECT r; GetWindowRect(h,out r); return h+" '"+t+"' vis="+IsWindowVisible(h)+" en="+IsWindowEnabled(h)+" owner="+GetWindow(h,4)+" style="+GetWindowLong(h,-16).ToString("X8")+" ex="+GetWindowLong(h,-20).ToString("X8")+" "+r.L+","+r.T+" "+(r.R-r.L)+"x"+(r.B-r.T); }
+  public static void Click(int x, int y) { SetCursorPos(x, y); System.Threading.Thread.Sleep(200); mouse_event(2,0,0,0,UIntPtr.Zero); System.Threading.Thread.Sleep(60); mouse_event(4,0,0,0,UIntPtr.Zero); }
+  public static Bitmap Grab(Rectangle r) { var b = new Bitmap(r.Width, r.Height); using (var g = Graphics.FromImage(b)) g.CopyFromScreen(r.Location, Point.Empty, r.Size); return b; }
+  public static int Diff(Bitmap a, Bitmap b) { int n = 0; for (int y = 0; y < a.Height; y += 2) for (int x = 0; x < a.Width; x += 2) { Color p = a.GetPixel(x, y), q = b.GetPixel(x, y); if (Math.Abs(p.R - q.R) + Math.Abs(p.G - q.G) + Math.Abs(p.B - q.B) > 40) n++; } return n; }
 }
-"@ -ErrorAction SilentlyContinue
-  return [CW]::Main()
+"@
+function ClaudeWins { return [CW]::Wins("claude") }
+# 눌러서 화면이 바뀌는지로 「먹통」인지 확인: UIA로 메뉴 단추를 찾아 진짜 마우스로 누름
+function Probe($tag) {
+  $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
+  if (-not $h) { L "$tag : 보이는 Claude 창 없음"; return "없음" }
+  $el = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+  $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Menu")
+  $btn = $el.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+  if (-not $btn) { L "$tag : Menu 단추 못 찾음"; return "단추없음" }
+  $r = $btn.Current.BoundingRectangle
+  $cx = [int]($r.X + $r.Width / 2); $cy = [int]($r.Y + $r.Height / 2)
+  $area = New-Object System.Drawing.Rectangle ([int]$r.X), ([int]$r.Y), 300, 300
+  $before = [CW]::Grab($area)
+  [CW]::Click($cx, $cy); Start-Sleep 2
+  $after = [CW]::Grab($area)
+  $d = [CW]::Diff($before, $after)
+  Shot "$tag-누른뒤"
+  [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep 1
+  $d2 = [CW]::Diff($before, [CW]::Grab($area))
+  if ($d2 -gt 50) { [CW]::Click($cx, $cy); Start-Sleep 1 }
+  L "$tag : Menu ($cx,$cy) 누르니 바뀐 점 $d"
+  if ($d -gt 50) { return "반응" } else { return "먹통" }
 }
 function DumpWins($tag) { L "--- 창 $tag"; foreach ($h in (ClaudeWins)) { L ("  " + [CW]::Desc($h)) } }
 function Uia($h, $max) {
@@ -162,6 +185,7 @@ Example 웹`tExample`thttps://example.com/`t#0ea5e9`t0`tweb
 "@ | Set-Content "$env:APPDATA\RamSpirit\apps.txt" -Encoding UTF8
 $env:RAMSPIRIT_TEST = "1"; Start-Process C:\t\RamSpirit.exe; Start-Sleep 30
 DumpWins "붙인 뒤"; Shot "r1-붙임"
+$p1 = Probe "P1-붙인뒤"
 $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
 if ($h) { L "UIA:"; Uia $h 40 }
 
@@ -171,6 +195,8 @@ DumpWins "닫은 뒤"; Shot "r2-닫음"
 L "== 4. 칸 눌러 다시 열기"
 [WT]::Cmd(113); Start-Sleep 12
 DumpWins "다시 연 뒤"; Shot "r3-다시엶"
+$p2 = Probe "P2-다시연뒤"
+L "== 결과: 붙인 뒤 $p1 / 닫았다 다시 연 뒤 $p2"
 $h = (ClaudeWins | Where-Object { [CW]::IsWindowVisible($_) } | Select-Object -First 1)
 if ($h) { L "UIA:"; Uia $h 40 }
 Get-Content "$env:APPDATA\RamSpirit\attach.log" -Encoding UTF8 | ForEach-Object { L $_ }
