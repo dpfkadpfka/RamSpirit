@@ -171,6 +171,8 @@ if ($l2 -ne "풀림") { $script:fails += "L1 : 대화상자 없이 잠긴 창을
 Grok "dialog"; Start-Sleep 7; $l3 = [WT]::EnabledTitle("Grok Bot"); "대화상자 중 $l3" | Out-File $log -Append -Encoding utf8
 if ($l3 -ne "잠김") { $script:fails += "L2 : 대화상자가 떠 있는데 앱 잠금을 풀어 버림 ($l3)" }
 Grok "closedialog"; Start-Sleep 3
+# 앱이 칸 밖에 새 본창을 따로 띄움(ChatGPT 먹통 상황) → 새 창이 칸에 붙고 밖에 남는 창이 없어야 함
+Grok "spawn"; Start-Sleep 7; Snap "W1-앱이새창을띄움" $true 4
 # 앱이 멈췄을 때 → 칸에 안내
 Grok "hang"; Start-Sleep 17; Snap "S2-앱멈춤안내"
 $hc=[WT]::FindTitle("RamSpirit-hung"); "멈춤 안내 위치 $hc" | Out-File $log -Append -Encoding utf8; if ($hc -eq $null) { $script:fails += "S2 : 멈춘 앱 안내가 안 뜸" }

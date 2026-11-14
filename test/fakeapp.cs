@@ -24,6 +24,7 @@ static class FakeApp {
       else if (c == "close") { last = f.Bounds; f.Dispose(); f = null; }
       else if (c == "dialog") { var d = new Form(); d.Text = "Save As Test"; d.StartPosition = FormStartPosition.Manual; d.Location = new Point(-3000, -3000); d.Size = new Size(400, 250); f.BeginInvoke((MethodInvoker)delegate { d.ShowDialog(f); }); }
       else if (c == "closedialog") { foreach (Form o in Application.OpenForms) if (o != f && o.Text == "Save As Test") { o.Close(); break; } }
+      else if (c == "spawn") { last = Rectangle.Empty; var old = f; f = Make(); f.Text = title; f.Show(); old.Text = title; }
       else if (c == "lock") { EnableWindow(f.Handle, false); }
       else if (c == "hang") { System.Threading.Thread.Sleep(25000); }
       else if (c == "recreate") { if (f != null) { last = f.Bounds; f.Dispose(); } f = Make(); f.Show(); }
