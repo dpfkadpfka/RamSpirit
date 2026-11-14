@@ -325,6 +325,28 @@ class AppInfo
         return new AppInfo(name, keys, "app:" + id, c);
     }
 
+    // 고르기 메뉴에 넣는 목록 — 앱마다 「앱」과 「웹」(브라우저 창으로 여는 사이트) 두 가지
+    static AppInfo[] choices;
+    public static AppInfo[] Choices
+    {
+        get
+        {
+            if (choices == null)
+            {
+                var l = new List<AppInfo>();
+                foreach (AppInfo p in Presets) { l.Add(p); l.Add(WebOf(p)); }
+                choices = l.ToArray();
+            }
+            return choices;
+        }
+    }
+    public static AppInfo WebOf(AppInfo p)
+    {
+        var a = new AppInfo(p.Name + " 웹", p.Keys, p.Url, p.Color);
+        a.PreferWeb = true;
+        return a;
+    }
+
     public static readonly AppInfo[] Presets = new AppInfo[] {
         new AppInfo("ChatGPT",    "ChatGPT",            "https://chatgpt.com/",                 "#10a37f"),
         new AppInfo("Gemini",     "Gemini",             "https://gemini.google.com/app",        "#4285f4"),
@@ -759,7 +781,7 @@ static class AppIcons
             // 설치된 앱 ID 찾기 (없으면 사이트 주소로)
             string src = null;
             if (a.Url.StartsWith("app:")) src = "app:" + a.Url.Substring(4);
-            else if (Installed != null)
+            else if (Installed != null && !a.PreferWeb)   // 웹 칸은 사이트 아이콘
             {
                 string id;
                 foreach (string n in new string[] { a.Name, "Google " + a.Name, a.Name + " AI" })
@@ -2410,9 +2432,10 @@ class MainForm : Form
                 card.Click += delegate
                 {
                     var m = Ui.Menu();
-                    foreach (AppInfo pr in AppInfo.Presets)
+                    foreach (AppInfo pr in AppInfo.Choices)
                     {
                         AppInfo pick = pr;
+                        if (pr.PreferWeb == false && m.Items.Count > 0) m.Items.Add(new ToolStripSeparator());
                         var it = new ToolStripMenuItem(pr.Name, AppIcons.Small(pr));
                         it.Checked = pr.SameAs(slots[idx]);
                         it.Click += delegate { slots[idx] = pick; card.App = pick; card.Invalidate(); };
@@ -3082,9 +3105,10 @@ class MainForm : Form
     void ShowAppMenu(Target t)
     {
         var menu = Ui.Menu();
-        foreach (AppInfo p in AppInfo.Presets)
+        foreach (AppInfo p in AppInfo.Choices)
         {
             AppInfo pick = p;
+            if (!p.PreferWeb && menu.Items.Count > 0) menu.Items.Add(new ToolStripSeparator());
             var item = new ToolStripMenuItem(p.Name, AppIcons.Small(p));
             if (p.Name == t.App.Name) item.Checked = true;
             item.Click += delegate { ChangeApp(t, pick); };
@@ -4840,7 +4864,7 @@ class MainForm : Form
             catch { }
         };
         try { if (startApps == null) startApps = StartApps(); AppIcons.Installed = startApps; } catch { }
-        foreach (AppInfo a in AppInfo.Presets) AppIcons.Get(a);
+        foreach (AppInfo a in AppInfo.Choices) AppIcons.Get(a);
         foreach (Target x in AllTargets()) AppIcons.Get(x.App);
         UpdateTabs();
         SetOnTop(onTop);
@@ -4865,6 +4889,11 @@ class MainForm : Form
     }
 
     // 같은 앱을 한 칸은 설치된 앱, 다른 칸은 웹 창으로 쓰면 → 앱 칸은 브라우저 창을 잡지 않게 표시
+    static bool SameSite(string a, string b)
+    {
+        try { return a != null && b != null && a.StartsWith("http") && b.StartsWith("http") && new Uri(a).Host.Replace("www.", "") == new Uri(b).Host.Replace("www.", ""); }
+        catch { return false; }
+    }
     void MarkSiblings()
     {
         List<Target> all = AllTargets();
@@ -4873,7 +4902,7 @@ class MainForm : Form
             bool sib = false;
             if (!t.App.IsInstalled && !t.App.PreferWeb && !t.Web)
                 foreach (Target o in all)
-                    if (o != t && o.App.PreferWeb && o.App.Name == t.App.Name) { sib = true; break; }
+                    if (o != t && o.App.PreferWeb && (o.App.Name == t.App.Name || SameSite(o.App.Url, t.App.Url))) { sib = true; break; }
             t.NoBrowser = sib;
         }
     }
@@ -5388,7 +5417,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.23";
+    public const string Version = "2.3.24";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 

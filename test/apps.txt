@@ -24,6 +24,12 @@ Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
 Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
 Claude	Claude	file:///C:/t/pages/claude.html	#d97757	1	web
 #ratio	1,1	1,1
+#tab	웹 4
+Claude 웹	Claude	file:///C:/t/pages/claude.html	#d97757	1
+Claude 웹	Claude	file:///C:/t/pages/claude.html	#d97757	1
+Claude 웹	Claude	file:///C:/t/pages/claude.html	#d97757	1
+Claude 웹	Claude	file:///C:/t/pages/claude.html	#d97757	1
+#ratio	1,1	1,1
 #active	Claude App & Web
 #composer	0
 #theme	분홍
