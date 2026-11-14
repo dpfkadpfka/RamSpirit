@@ -2431,23 +2431,7 @@ class MainForm : Form
                 card.SetBounds((i % cols) * (cw + gap), (i / cols) * (ch + gap), cw, ch);
                 card.Click += delegate
                 {
-                    var m = Ui.Menu();
-                    foreach (AppInfo pr in AppInfo.Choices)
-                    {
-                        AppInfo pick = pr;
-                        if (pr.PreferWeb == false && m.Items.Count > 0) m.Items.Add(new ToolStripSeparator());
-                        var it = new ToolStripMenuItem(pr.Name, AppIcons.Small(pr));
-                        it.Checked = pr.SameAs(slots[idx]);
-                        it.Click += delegate { slots[idx] = pick; card.App = pick; card.Invalidate(); };
-                        m.Items.Add(it);
-                    }
-                    m.Items.Add(new ToolStripSeparator());
-                    var inst = new ToolStripMenuItem("설치된 프로그램에서 고르기...");
-                    inst.Click += delegate { AppInfo a = PickInstalled(f); if (a != null) { slots[idx] = a; card.App = a; card.Invalidate(); } };
-                    var cus = new ToolStripMenuItem("직접 입력 (사이트 주소)...");
-                    cus.Click += delegate { AppInfo a = AskCustom(f); if (a != null) { slots[idx] = a; card.App = a; card.Invalidate(); } };
-                    m.Items.Add(inst); m.Items.Add(cus);
-                    m.Show(card, new Point(0, card.Height + 2));
+                    SlotMenu(card, f, slots[idx], delegate (AppInfo a) { slots[idx] = a; card.App = a; card.Invalidate(); });
                 };
                 grid.Controls.Add(card);
             }
@@ -2858,16 +2842,14 @@ class MainForm : Form
     void AddSpace()
     {
         string col = ""; int look = 0;
-        string n = AskTab("새 탭 만들기", "", ref col, ref look, null);
-        if (n == null) return;
+        List<AppInfo> chosen;
+        string n = AskTab("새 탭 만들기", "", ref col, ref look, null, true, out chosen);
+        if (n == null || chosen == null || chosen.Count == 0) return;
         var w = new Workspace(n);
         w.Color = col; w.Look = look;
-        w.Started = true;                      // 칸은 아래 설정에서 고름
+        w.Started = true;                      // 칸은 새 탭 만들기 창에서 고름
         spaces.Add(w);
-        Workspace back = cur;
         SwitchTo(w);
-        List<AppInfo> chosen = SettingsDialog();
-        if (chosen == null) { RemoveSpace(w); SwitchTo(back); return; }
         ApplySettings(chosen, true);
         UpdateTabs();
     }
@@ -2901,12 +2883,117 @@ class MainForm : Form
         SaveConfig();
     }
 
+    // 칸 카드를 눌렀을 때 나오는 앱 고르기 메뉴 (앱마다 앱 · 웹, 설치된 프로그램, 직접 입력)
+    void SlotMenu(Control anchor, Form owner, AppInfo current, Action<AppInfo> set)
+    {
+        var m = Ui.Menu();
+        foreach (AppInfo pr in AppInfo.Choices)
+        {
+            AppInfo pick = pr;
+            if (!pr.PreferWeb && m.Items.Count > 0) m.Items.Add(new ToolStripSeparator());
+            var it = new ToolStripMenuItem(pr.Name, AppIcons.Small(pr));
+            it.Checked = pr.SameAs(current) && pr.PreferWeb == (current != null && current.PreferWeb);
+            it.Click += delegate { set(pick); };
+            m.Items.Add(it);
+        }
+        m.Items.Add(new ToolStripSeparator());
+        var inst = new ToolStripMenuItem("설치된 프로그램에서 고르기...");
+        inst.Click += delegate { AppInfo a = PickInstalled(owner); if (a != null) set(a); };
+        var cus = new ToolStripMenuItem("직접 입력 (사이트 주소)...");
+        cus.Click += delegate { AppInfo a = AskCustom(owner); if (a != null) set(a); };
+        m.Items.Add(inst); m.Items.Add(cus);
+        m.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
     // 이름 하나 묻는 작은 창
     string AskTab(string title, string start, ref string color, ref int look, List<AppInfo> apps)
     {
+        List<AppInfo> none;
+        return AskTab(title, start, ref color, ref look, apps, false, out none);
+    }
+
+    // pickApps: 새 탭 만들기 — 오른쪽에서 칸 수와 칸마다 열 앱까지 바로 고름
+    string AskTab(string title, string start, ref string color, ref int look, List<AppInfo> apps, bool pickApps, out List<AppInfo> picked)
+    {
+        picked = null;
         Panel body; IconBtn ok, cancel;
-        var f = Ui.Shell(title, "예: AI, 이미지, 문서, 수업 · 20자까지", 460, 540, "확인", out body, out ok, out cancel);
+        var f = Ui.Shell(title, pickApps ? "탭 이름·색깔을 정하고, 오른쪽에서 칸마다 열 앱을 골라요" : "예: AI, 이미지, 문서, 수업 · 20자까지",
+            pickApps ? 900 : 460, 540, pickApps ? "만들기" : "확인", out body, out ok, out cancel);
         Action refresh = null;
+        // 새 탭: 칸 수 + 칸마다 열 앱
+        var slots = new AppInfo[8];
+        int count = 4;
+        if (pickApps)
+        {
+            for (int i = 0; i < 8; i++) slots[i] = AppInfo.Presets[i % AppInfo.Presets.Length];
+            apps = new List<AppInfo>();
+            for (int i = 0; i < count; i++) apps.Add(slots[i]);
+            const int RX = 476, RW = 900 - RX - 24;
+            body.Paint += delegate (object o, PaintEventArgs e)
+            {
+                using (var pen = new Pen(Th.Line)) e.Graphics.DrawLine(pen, RX - 18, 4, RX - 18, body.Height - 8);
+            };
+            var cl2 = new Label();
+            cl2.Text = "칸 수"; cl2.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); cl2.ForeColor = Th.Text;
+            cl2.AutoSize = true; cl2.Location = new Point(RX, 6); cl2.BackColor = body.BackColor;
+            body.Controls.Add(cl2);
+            var cntSeg = new SegBox(); cntSeg.BackColor = body.BackColor;
+            var cntBtns = new List<IconBtn>();
+            var grid = new Panel(); grid.BackColor = body.BackColor;
+            grid.SetBounds(RX, 104, RW, 540 - 84 - 72 - 104 - 4);
+            Action rebuild = null;
+            int cx0 = 3;
+            foreach (int nc in new int[] { 2, 4, 6, 8 })
+            {
+                int nn = nc;
+                var cb = new IconBtn(); cb.Seg = true; cb.Text = nc + "칸"; cb.Radius = 7; cb.Active = nc == count;
+                cb.Font = new Font("Malgun Gothic", 9.5f, nc == count ? FontStyle.Bold : FontStyle.Regular);
+                cb.SetBounds(cx0, 3, 64, 30); cx0 += 66;
+                cb.Click += delegate
+                {
+                    count = nn;
+                    foreach (IconBtn x in cntBtns) { x.Active = x == cb; x.Font = new Font("Malgun Gothic", 9.5f, x == cb ? FontStyle.Bold : FontStyle.Regular); x.Invalidate(); }
+                    rebuild();
+                };
+                cntBtns.Add(cb); cntSeg.Controls.Add(cb);
+            }
+            cntSeg.SetBounds(RX, 34, cx0 + 1, 36);
+            body.Controls.Add(cntSeg);
+            var al = new Label();
+            al.Text = "칸마다 열 앱 · 화면과 같은 자리 (누르면 바꿔요)"; al.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); al.ForeColor = Th.Text;
+            al.AutoSize = true; al.Location = new Point(RX, 78); al.BackColor = body.BackColor;
+            body.Controls.Add(al);
+            body.Controls.Add(grid);
+            rebuild = delegate
+            {
+                grid.SuspendLayout();
+                while (grid.Controls.Count > 0) { Control c = grid.Controls[0]; grid.Controls.RemoveAt(0); c.Dispose(); }
+                int rows = count >= 4 ? 2 : 1, cols = count / rows, gap = 8;
+                int cw = (grid.Width - gap * (cols - 1)) / cols;
+                int ch = Math.Min(130, (grid.Height - gap * (rows - 1)) / rows);
+                for (int i = 0; i < count; i++)
+                {
+                    int idx = i;
+                    var card = new SlotCard();
+                    card.Number = i + 1; card.App = slots[i];
+                    card.SetBounds((i % cols) * (cw + gap), (i / cols) * (ch + gap), cw, ch);
+                    card.Click += delegate
+                    {
+                        SlotMenu(card, f, slots[idx], delegate (AppInfo a)
+                        {
+                            slots[idx] = a; card.App = a; card.Invalidate();
+                            apps.Clear(); for (int k = 0; k < count; k++) apps.Add(slots[k]);
+                            if (refresh != null) refresh();
+                        });
+                    };
+                    grid.Controls.Add(card);
+                }
+                grid.ResumeLayout();
+                apps.Clear(); for (int k = 0; k < count; k++) apps.Add(slots[k]);
+                if (refresh != null) refresh();
+            };
+            rebuild();
+        }
         var ll = new Label();
         ll.Text = "탭에 보이는 것"; ll.Font = new Font("Malgun Gothic", 10f, FontStyle.Bold); ll.ForeColor = Th.Text;
         ll.AutoSize = true; ll.Location = new Point(24, 170); ll.BackColor = body.BackColor;
@@ -2995,6 +3082,7 @@ class MainForm : Form
         f.ShowDialog(this);
         if (!done) return null;
         color = pick; look = lookPick;
+        if (pickApps) { picked = new List<AppInfo>(); for (int k = 0; k < count; k++) picked.Add(slots[k]); }
         string n = name.Text.Trim().Replace("\t", " ");
         return n.Length > 20 ? n.Substring(0, 20) : n;
     }
@@ -3711,6 +3799,7 @@ class MainForm : Form
                 try { Process.Start(exe, "--wait " + Process.GetCurrentProcess().Id); } catch { }
                 Environment.Exit(0);
             }
+            else if (c == 114) BeginInvoke((MethodInvoker)AddSpace);
             else if (c == 113) { foreach (Target x in T.ToArray()) if (x.Wait.Visible) x.Wait.GetType().GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(x.Wait, new object[] { EventArgs.Empty }); }
             return;
         }
@@ -5417,7 +5506,7 @@ static class Uia
 // ---------- 설치·자동 업데이트 ----------
 static class Updater
 {
-    public const string Version = "2.3.24";
+    public const string Version = "2.3.25";
     public static string Ready;   // 이번에 받아 둔 새 버전 (다시 시작하면 적용)
     const string Repo = "dpfkadpfka/RamSpirit";
 

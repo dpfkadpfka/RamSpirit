@@ -78,6 +78,16 @@ public static class WT {
       res = IsWindowEnabled(h) ? "풀림" : "잠김"; return false; }, IntPtr.Zero);
     return res;
   }
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  public static bool FocusTitle(string want) {
+    bool ok = false;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      var t = new StringBuilder(256); GetWindowText(h, t, 256);
+      if (t.ToString() != want) return true;
+      ok = SetForegroundWindow(h); return false; }, IntPtr.Zero);
+    return ok;
+  }
   public static void CloseApp(string title, string proc) {
     EnumWindows(delegate (IntPtr h, IntPtr l) {
       int pid; GetWindowThreadProcessId(h, out pid);
@@ -113,6 +123,20 @@ Start-Ram; Start-Sleep 3; Snap "00-켜는중" $false; Start-Sleep 22; Snap "01-�
 [WT]::Cmd(103); Start-Sleep 18; Snap "03b-클로드앱1웹3" $true 4
 [WT]::Cmd(104); Start-Sleep 20; Snap "03c-클로드웹4" $true 4
 [WT]::Cmd(100); Start-Sleep 10; Snap "04-탭1로"
+# 새 탭 만들기 창에서 바로 칸·앱 고르기 (기본 4칸) → 이름 쓰고 Enter
+[WT]::Cmd(114); Start-Sleep 4
+$nt = [WT]::FindTitle("새 탭 만들기"); "새 탭 창 위치 $nt" | Out-File $log -Append -Encoding utf8
+Snap "N1-새탭만들기창" $false
+[void][WT]::FocusTitle("새 탭 만들기"); Start-Sleep 1
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait("NewTab{ENTER}"); Start-Sleep 20
+$cfg = Get-Content "$env:APPDATA\RamSpirit\apps.txt" -Raw -Encoding utf8
+$m = [regex]::Match($cfg, "(?s)#tab\tNewTab\r?\n(.*?)(#tab|#active)")
+$cnt = 0; if ($m.Success) { foreach ($ln in ($m.Groups[1].Value -split "\r?\n")) { if ($ln -ne "" -and -not $ln.StartsWith("#")) { $cnt++ } } }
+"새 탭 칸 수 $cnt" | Out-File $log -Append -Encoding utf8
+if ($cnt -ne 4) { $script:fails += "N2 : 새 탭에 칸 4개가 안 생김 ($cnt)" }
+Snap "N2-새탭바로열림" $false
+[WT]::Cmd(100); Start-Sleep 8
 [WT]::Cmd(3);   Start-Sleep 15; Snap "05-모두새대화"
 # 탭에 마우스를 올리면 위쪽에 수정·삭제가 뜨는지, 수정을 누르면 창이 뜨는지
 [WT]::SetCursorPos(650, 45); Start-Sleep 2; Snap "H1-탭에마우스"
